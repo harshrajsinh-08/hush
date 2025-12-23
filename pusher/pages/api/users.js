@@ -1,0 +1,21 @@
+import dbConnect from '../../lib/db';
+import { User } from '../../lib/models';
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ message: 'Method not allowed' });
+  }
+
+  await dbConnect();
+  const { q } = req.query;
+
+  try {
+    const normalizedQ = q?.trim().toLowerCase();
+    const query = normalizedQ ? { username: { $regex: normalizedQ, $options: 'i' } } : {};
+    const users = await User.find(query).limit(20).select('username _id');
+    res.status(200).json(users);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+}
