@@ -35,7 +35,10 @@ export default function ChatInterface() {
   const [unreadCounts, setUnreadCounts] = useState({}); // { username: count }
   const [recentContacts, setRecentContacts] = useState([]); // Array of { username, unreadCount, lastTimestamp }
   const [replyingTo, setReplyingTo] = useState(null); // { _id, sender, content, type }
+
   const [theme, setTheme] = useState('light');
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState(null);
   
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({}); // To store refs for each message to allow scrolling to them
@@ -158,6 +161,10 @@ export default function ChatInterface() {
       setMessages(prev => prev.map(m => m._id === messageId ? { ...m, reactions } : m));
     });
 
+    userChannel.bind('message_deleted', ({ messageId }) => {
+      setMessages(prev => prev.filter(m => m._id !== messageId));
+    });
+
     userChannel.bind('receive_message', (msg) => {
       const otherUser = msg.sender === user.username ? msg.receiver : msg.sender;
       const pwd = verifiedPasswords[otherUser];
@@ -240,6 +247,8 @@ export default function ChatInterface() {
     setIsOtherUserTyping(false);
     setMessages([]);
     setHasMore(true);
+    setIsCheckingStatus(true);
+    setShowPasswordPrompt(false);
 
     // Update unread count locally and notify server
     setUnreadCounts(prev => ({ ...prev, [otherUser.username]: 0 }));
@@ -250,21 +259,28 @@ export default function ChatInterface() {
     });
 
     // Check if password exists
-    const statusRes = await fetch(`/api/conversations/status?user1=${user.username}&user2=${otherUser.username}`);
-    const status = await statusRes.json();
+    try {
+      const statusRes = await fetch(`/api/conversations/status?user1=${user.username}&user2=${otherUser.username}`);
+      const status = await statusRes.json();
 
-    if (!status.exists) {
-      setPromptAction('setup');
-      setShowPasswordPrompt(true);
-      return;
-    }
+      setIsCheckingStatus(false);
 
-    // Check if already verified in this session
-    if (verifiedPasswords[otherUser.username]) {
-      fetchHistory(otherUser.username, verifiedPasswords[otherUser.username]);
-    } else {
-      setPromptAction('verify');
-      setShowPasswordPrompt(true);
+      if (!status.exists) {
+        setPromptAction('setup');
+        setShowPasswordPrompt(true);
+        return;
+      }
+
+      // Check if already verified in this session
+      if (verifiedPasswords[otherUser.username]) {
+        fetchHistory(otherUser.username, verifiedPasswords[otherUser.username]);
+      } else {
+        setPromptAction('verify');
+        setShowPasswordPrompt(true);
+      }
+    } catch (err) {
+      setIsCheckingStatus(false);
+      showAlert('Failed to check conversation status');
     }
   };
 
@@ -287,6 +303,7 @@ export default function ChatInterface() {
 
       setMessages(decryptedHistory);
       if (history.length < 20) setHasMore(false);
+      setTimeout(scrollToBottom, 100);
     } catch (err) {
       console.error('Failed to fetch history', err);
     } finally {
@@ -422,6 +439,24 @@ export default function ChatInterface() {
     reader.readAsDataURL(file);
     // Reset input
     e.target.value = null;
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    // Optimistic update
+    setMessages(prev => prev.filter(m => m._id !== messageId));
+    setMessageToDelete(null);
+
+    try {
+      await fetch('/api/pusher/delete_message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, username: user.username })
+      });
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+      showAlert('Failed to delete message');
+      // Revert if failed (would need more complex state management, ignoring for now as simple retry is okay)
+    }
   };
 
   const handleSendImageWithCaption = (e) => {
@@ -585,17 +620,63 @@ export default function ChatInterface() {
     </div>
   );
 
+  const renderDeleteModal = () => (
+    <div className="interaction-overlay" onClick={() => setMessageToDelete(null)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div 
+        className="delete-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem', color: 'var(--slate-800)' }}>Delete Message?</h3>
+        <p style={{ margin: '0 0 1.5rem 0', color: 'var(--slate-500)', fontSize: '0.95rem' }}>
+          Are you sure you want to delete this message? This action cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+          <button 
+            onClick={() => setMessageToDelete(null)}
+            style={{ 
+              padding: '0.6rem 1rem', 
+              background: 'var(--slate-100)', 
+              border: 'none', 
+              borderRadius: '8px', 
+              color: 'var(--slate-700)', 
+              fontWeight: '600', 
+              cursor: 'pointer' 
+            }}
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => handleDeleteMessage(messageToDelete)}
+            style={{ 
+              padding: '0.6rem 1rem', 
+              background: '#ef4444', 
+              border: 'none', 
+              borderRadius: '8px', 
+              color: 'white', 
+              fontWeight: '600', 
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="app-layout">
+      {messageToDelete && renderDeleteModal()}
       {/* Sidebar */}
       <aside className={`sidebar ${showMobileChat ? 'mobile-hidden' : ''}`}>
-        <header className="header">
-          <div className="avatar">{user.username[0].toUpperCase()}</div>
+        <header className="header" style={{ gap: '0.75rem', paddingLeft: '1.25rem' }}>
+          <img src="/logo.svg" alt="HUSH" style={{ width: '32px', height: '32px' }} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <h2 style={{ fontSize: '1rem', margin: 0, lineHeight: 1.2 }}>Chats</h2>
-            <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)', fontWeight: 500 }}>{user.username}</span>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, lineHeight: 1, letterSpacing: '-0.02em', color: 'var(--primary)' }}>Hush</h2>
+            <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Private Messenger</span>
           </div>
-          <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme" style={{ background: 'none', border: 'none', color: 'var(--slate-500)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
+          <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme" style={{ background: 'none', border: 'none', color: 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
             {theme === 'light' ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             ) : (
@@ -681,7 +762,14 @@ export default function ChatInterface() {
               </div>
             </header>
 
-            {showPasswordPrompt ? renderLockedState() : (
+            {showPasswordPrompt ? renderLockedState() : isCheckingStatus ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--slate-50)' }}>
+                <div className="avatar" style={{ background: 'transparent', color: 'var(--primary)', boxShadow: 'none' }}>
+                  <svg className="animate-spin" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                </div>
+                <p style={{ marginTop: '1rem', color: 'var(--slate-500)' }}>Checking security...</p>
+              </div>
+            ) : (
               <>
                 <div className="messages-area" onScroll={handleScroll}>
                   {isLoadingMore && <div className="loading-indicator">Loading older messages...</div>}
@@ -769,6 +857,19 @@ export default function ChatInterface() {
                             </span>
                           )}
 
+                          {m.sender === user.username && (
+                            <button
+                              className="delete-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMessageToDelete(m._id);
+                              }}
+                              title="Delete message"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                          )}
+
                           <button 
                             className="reply-btn"
                             onClick={() => setReplyingTo(m)}
@@ -776,17 +877,6 @@ export default function ChatInterface() {
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
                           </button>
-                          {m.sender !== user.username && (
-                            <button 
-                              className="reaction-trigger"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setReactingToMessage(m);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-                            </button>
-                          )}
                           {m.reactions && m.reactions.length > 0 && (
                             <div className="reactions-display">
                               {Array.from(new Set(m.reactions.map(r => r.type))).map(emoji => (
@@ -898,8 +988,10 @@ export default function ChatInterface() {
             <div className="avatar">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             </div>
-            <h3>Welcome to ChatSecure</h3>
-            <p>Select a conversation from the sidebar to start messaging with end-to-end encryption.</p>
+            <div className="empty-state">
+            <h3>Welcome to Hush</h3>
+            <p>Select a chat or search for a user to start messaging securely.</p>
+            </div>
           </div>
         )}
       </main>

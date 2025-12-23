@@ -4,8 +4,8 @@ export default function Document() {
   return (
     <Html lang="en">
       <Head>
-        <title>ChatSecure</title>
-        <link rel="icon" href="/logo.png" />
+        <title>Hush | Private & Secure Chat</title>
+        <link rel="icon" href="/logo.svg" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

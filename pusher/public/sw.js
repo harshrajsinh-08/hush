@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chatsecure-v1';
+const CACHE_NAME = 'hush-v1';
 const urlsToCache = [
   '/',
   '/manifest.json',

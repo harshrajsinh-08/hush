@@ -39,8 +39,11 @@ export default function Login() {
   return (
     <div className="login-container">
       <div className="login-card">
-        <h1>Welcome Back</h1>
-        <p>Connect with your friends with End to End Encryption</p>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
+          <img src="/logo.svg" alt="Hush Logo" style={{ width: '64px', height: '64px', marginBottom: '1rem' }} />
+          <h1 style={{ fontSize: '2.5rem', fontWeight: '700', letterSpacing: '-0.02em', margin: 0 }}>Hush</h1>
+        </div>
+        <p style={{ color: 'var(--slate-500)', fontSize: '1.1rem', fontWeight: '500' }}>Private. Secure. Simple.</p>
         <form onSubmit={handleSubmit}>
           <div className="input-group">
             <input

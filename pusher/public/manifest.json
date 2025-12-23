@@ -1,6 +1,6 @@
 {
-    "name": "ChatSecure",
-    "short_name": "ChatSecure",
+    "name": "Hush",
+    "short_name": "Hush",
     "description": "Secure, End-to-End Encrypted Messaging",
     "start_url": "/",
     "display": "standalone",
