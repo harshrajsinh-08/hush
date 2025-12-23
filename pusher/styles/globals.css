@@ -668,14 +668,19 @@ body {
 .input-area {
   padding: 0.75rem 0.85rem;
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
+  background: var(--white);
+  /* backdrop-filter removed as content does not scroll behind it */
   border-top: 1px solid var(--slate-100);
   display: flex;
   align-items: flex-end;
   gap: 0.6rem;
   position: relative;
   flex-shrink: 0;
+  transition: padding-bottom 0.1s ease-out;
+}
+
+.input-area.focused {
+  padding-bottom: 0.75rem;
 }
 
 @media (min-width: 768px) {

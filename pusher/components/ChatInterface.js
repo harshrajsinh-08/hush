@@ -40,6 +40,8 @@ export default function ChatInterface() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState(null);
   
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({}); // To store refs for each message to allow scrolling to them
   const textareaRef = useRef(null);
@@ -968,7 +970,7 @@ export default function ChatInterface() {
                   </div>
                 )}
 
-                <form className="input-area" onSubmit={sendMessage}>
+                <form className={`input-area ${isInputFocused ? 'focused' : ''}`} onSubmit={sendMessage}>
                   <input 
                     type="file" 
                     accept="image/*" 
@@ -986,6 +988,8 @@ export default function ChatInterface() {
                       value={message}
                       onChange={handleTextChange}
                       onKeyDown={handleKeyDown}
+                      onFocus={() => setIsInputFocused(true)}
+                      onBlur={() => setIsInputFocused(false)}
                       rows="1"
                     />
                   <button type="submit" className="send-btn" disabled={!message.trim()}>
