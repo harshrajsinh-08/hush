@@ -1100,7 +1100,7 @@ export default function ChatInterface() {
               <button className="back-btn" onClick={closeChat}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
               </button>
-              <div className="header-info" style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', paddingRight: '1rem' }}>
+              <div className="header-info" style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, paddingRight: '1rem' }}>
                 <div className="avatar" style={{ width: '36px', height: '36px', position: 'relative', flexShrink: 0 }}>
                   {activeChat.username[0].toUpperCase()}
                   {onlineUsers.has(activeChat.username) && <div className="online-indicator-small"></div>}
