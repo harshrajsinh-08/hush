@@ -1,5 +1,5 @@
 import dbConnect from '../../../lib/db';
-import { Message } from '../../../lib/models';
+import { Message, User } from '../../../lib/models';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -34,11 +34,18 @@ export default async function handler(req, res) {
           lastTimestamp: { $first: '$timestamp' }
       }},
       { $sort: { lastTimestamp: -1 } },
-      { $limit: 5 }
+      { $limit: 20 }
     ]);
 
+    // Filter out deleted users
+    const contactUsernames = recentContacts.map(c => c._id);
+    const existingUsers = await User.find({ username: { $in: contactUsernames } }).select('username');
+    const existingUsernames = new Set(existingUsers.map(u => u.username));
+
+    const validContacts = recentContacts.filter(c => existingUsernames.has(c._id));
+
     // Format contacts list
-    const contacts = recentContacts.map(c => ({
+    const contacts = validContacts.map(c => ({
       username: c._id,
       unreadCount: result[c._id] || 0,
       lastTimestamp: c.lastTimestamp
