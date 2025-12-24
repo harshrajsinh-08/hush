@@ -853,31 +853,31 @@ export default function ChatInterface() {
     if (!password) return;
 
     try {
-        const msgData = {
-          sender: user.username,
-          receiver: activeChat.username,
-          type: 'otv',
-          content: password, 
-          password: password,
-          timestamp: new Date().toISOString()
-        };
-
-        const res = await fetch('/api/pusher/message', {
+        const res = await fetch('/api/pusher/share_password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(msgData)
+          body: JSON.stringify({ 
+              sender: user.username,
+              receiver: activeChat.username,
+              password: password 
+          })
         });
         
         if (res.ok) {
-           const btn = document.querySelector('.lock-btn[title="Share Password"]');
+           showAlert('Password shared via Secure Inbox!');
+           const btn = document.querySelector('.lock-btn[title="Share Password / Setup"]');
            if (btn) {
                const original = btn.innerHTML;
                btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>';
                setTimeout(() => btn.innerHTML = original, 2000);
            }
+        } else {
+           const data = await res.json();
+           showAlert(data.message || 'Failed to share password');
         }
     } catch (e) {
         console.error("Failed to share password", e);
+        showAlert('Error sharing password');
     }
   };
 
