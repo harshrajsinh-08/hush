@@ -13,6 +13,15 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Username is required' });
   }
 
+  // Session check
+  const { verifyToken } = await import('../../../lib/auth');
+  const token = verifyToken(req);
+  if (!token) return res.status(401).json({ message: 'Unauthorized' });
+
+  if (token.username.toLowerCase() !== username.toLowerCase()) {
+      return res.status(403).json({ message: 'Forbidden: Access denied' });
+  }
+
   try {
     // Get unread counts grouped by sender
     const unreadCounts = await Message.aggregate([

@@ -1,6 +1,8 @@
 import dbConnect from '../../lib/db';
 import { User } from '../../lib/models';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { serialize } from 'cookie';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -43,11 +45,32 @@ export default async function handler(req, res) {
       invite.isUsed = true;
       await invite.save();
 
-      // Create new user
+      // Create new user (User model hashes password internally if defined, otherwise we should check)
+      // Based on previous view, User.create({ username, password }) is used.
       user = await User.create({ username: normalizedUsername, password });
     }
 
-    res.status(200).json(user);
+    // Generate JWT
+    const token = jwt.sign(
+      { username: user.username, userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Set cookie
+    const cookie = serialize('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 7, // 1 week
+      path: '/',
+    });
+
+    res.setHeader('Set-Cookie', cookie);
+    res.status(200).json({
+      username: user.username,
+      _id: user._id
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });

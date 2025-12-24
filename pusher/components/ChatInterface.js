@@ -40,6 +40,10 @@ export default function ChatInterface() {
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState(null);
   
+  // Notifications
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isSending, setIsSending] = useState(false);
   
@@ -61,7 +65,29 @@ export default function ChatInterface() {
 
   useEffect(() => {
       verifiedPasswordsRef.current = verifiedPasswords;
-  }, [verifiedPasswords]);
+      
+      // If we just verified a password for the currently active chat, re-decrypt existing messages
+      if (activeChat && verifiedPasswords[activeChat.username]) {
+          const pwd = verifiedPasswords[activeChat.username];
+          setMessages(prev => prev.map(msg => {
+              if (msg.content === '[Decryption Failed]' && msg.rawContent) {
+                   const decrypted = msg.type === 'otv' ? msg.content : decryptData(msg.rawContent, pwd);
+                   if (decrypted !== '[Decryption Failed]') {
+                       return {
+                           ...msg,
+                           content: decrypted,
+                           caption: msg.caption ? decryptData(msg.caption, pwd) : msg.caption,
+                           replyToData: (msg.replyToData && msg.replyToData.content) ? {
+                               ...msg.replyToData,
+                               content: decryptData(msg.replyToData.content, pwd)
+                           } : msg.replyToData
+                       };
+                   }
+              }
+              return msg;
+          }));
+      }
+  }, [verifiedPasswords, activeChat?.username]);
 
   const encryptData = (data, password) => {
     return CryptoJS.AES.encrypt(data, password).toString();
@@ -72,11 +98,12 @@ export default function ChatInterface() {
     try {
       const bytes = CryptoJS.AES.decrypt(ciphertext, password);
       const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-      return decrypted || '';
+      // If bytes are valid but empty string results, or just empty, consider failed for chat purposes
+      // unless original was empty (but we check !ciphertext above)
+      return decrypted.length > 0 ? decrypted : '[Decryption Failed]';
     } catch (e) {
       return '[Decryption Failed]';
     }
-    return '[Decryption Failed]';
   };
 
   const scrollToBottom = () => {
@@ -272,6 +299,13 @@ export default function ChatInterface() {
       });
     });
 
+
+    // Notifications listener
+    userChannel.bind('new_notification', (data) => {
+        setNotifications(prev => [data.notification, ...prev]);
+        // Also play a subtle sound if desired
+    });
+
     return () => {
       if (pusher) {
         pusher.unsubscribe(`private-user-${user.username}`);
@@ -281,12 +315,24 @@ export default function ChatInterface() {
     };
   }, [user.username, activeChat?.username]);
 
+  // Debounced Search
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchQuery.trim().length > 0) {
+        fetch(`/api/users?q=${searchQuery}`)
+         .then(res => res.json())
+         .then(data => setSearchResults(data))
+         .catch(console.error);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
   const handleSearchChange = (e) => {
-    const q = e.target.value;
-    setSearchQuery(q);
-    if (q.length === 0) {
-      setSearchResults([]);
-    }
+    setSearchQuery(e.target.value);
   };
 
   const handleSearchSubmit = async (e) => {
@@ -298,7 +344,7 @@ export default function ChatInterface() {
     }
   };
 
-  const startChat = async (otherUser) => {
+  const startChat = async (otherUser, initialPassword = null) => {
     if (otherUser.username === user.username) return;
     setActiveChat(otherUser);
     setSearchQuery('');
@@ -328,13 +374,18 @@ export default function ChatInterface() {
       if (!status.exists) {
         setPromptAction('setup');
         setShowPasswordPrompt(true);
+        // Load history anyway to see automated OTV messages
+        fetchHistory(otherUser.username, null);
         return;
       }
 
-      // Check if already verified in this session
-      if (verifiedPasswords[otherUser.username]) {
-        fetchHistory(otherUser.username, verifiedPasswords[otherUser.username]);
+      // Check if already verified in this session OR we have an initialPassword passed in (e.g. from Unlock)
+      const pwd = initialPassword || verifiedPasswords[otherUser.username];
+      
+      if (pwd) {
+        fetchHistory(otherUser.username, pwd);
       } else {
+        // Chat exists but is NOT verified. Show prompt.
         setPromptAction('verify');
         setShowPasswordPrompt(true);
       }
@@ -347,34 +398,28 @@ export default function ChatInterface() {
   const fetchHistory = async (otherUsername, password) => {
     setIsLoadingHistory(true);
     try {
-      const res = await fetch(`/api/messages?user1=${user.username}&user2=${otherUsername}&password=${password}&limit=20`);
-      if (!res.ok) throw new Error('Unauthorized');
+      const res = await fetch(`/api/messages?user1=${user.username}&user2=${otherUsername}&password=${password || ''}&limit=20`);
+      if (!res.ok) {
+        if (res.status === 401) console.warn('Unauthorized access to history');
+        return;
+      }
       const history = await res.json();
       
-      const decryptedMessages = [];
-      const chunkSize = 5;
-      
-      for (let i = 0; i < history.length; i += chunkSize) {
-        const chunk = history.slice(i, i + chunkSize);
-        
-        // Process chunk
-        const decryptedChunk = chunk.map(msg => ({
-            ...msg,
-            content: msg.type === 'otv' ? msg.content : decryptData(msg.content, password),
-            caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
-            replyToData: (msg.replyToData && msg.replyToData.content) ? {
-              ...msg.replyToData,
-              content: decryptData(msg.replyToData.content, password)
-            } : msg.replyToData
-        }));
-        
-        decryptedMessages.push(...decryptedChunk);
-        
-        // Update state incrementally to show progress if needed, 
-        // or just yield to let UI breathe. 
-        // Here we yield to keep UI responsive.
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      if (!Array.isArray(history)) return;
+
+      const decryptedMessages = history.map(msg => {
+          const decrypted = msg.type === 'otv' ? msg.content : decryptData(msg.content, password);
+          return {
+              ...msg,
+              rawContent: msg.content,
+              content: decrypted,
+              caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
+              replyToData: (msg.replyToData && msg.replyToData.content) ? {
+                ...msg.replyToData,
+                content: decryptData(msg.replyToData.content, password)
+              } : msg.replyToData
+          };
+      });
 
       // Race condition check: Ensure we are still looking at the same chat
       if (activeChat?.username === otherUsername) {
@@ -402,17 +447,28 @@ export default function ChatInterface() {
 
   useEffect(() => {
     fetchUnread();
+    
+    // Fetch notifications
+    fetch('/api/notifications')
+      .then(res => res.json())
+      .then(data => {
+          if (Array.isArray(data)) setNotifications(data);
+      })
+      .catch(console.error);
+
   }, [user.username]);
 
   const loadMore = async () => {
     if (isLoadingMore || !hasMore || messages.length === 0) return;
     
     setIsLoadingMore(true);
-    const password = verifiedPasswords[activeChat.username];
+    const password = verifiedPasswords[activeChat.username] || '';
     const firstMsgTimestamp = messages[0].timestamp;
 
     try {
       const res = await fetch(`/api/messages?user1=${user.username}&user2=${activeChat.username}&password=${password}&before=${firstMsgTimestamp}&limit=20`);
+      if (!res.ok) return;
+      
       const olderMessages = await res.json();
 
       if (olderMessages.length < 20) setHasMore(false);
@@ -424,15 +480,19 @@ export default function ChatInterface() {
           const chunk = olderMessages.slice(i, i + chunkSize);
           
            // Process chunk
-        const decryptedChunk = chunk.map(msg => ({
-            ...msg,
-            content: msg.type === 'otv' ? msg.content : decryptData(msg.content, password),
-            caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
-            replyToData: (msg.replyToData && msg.replyToData.content) ? {
-              ...msg.replyToData,
-              content: decryptData(msg.replyToData.content, password)
-            } : msg.replyToData
-        }));
+        const decryptedChunk = chunk.map(msg => {
+            const decrypted = msg.type === 'otv' ? msg.content : decryptData(msg.content, password);
+            return {
+                ...msg,
+                rawContent: msg.content, // Preserve original
+                content: decrypted,
+                caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
+                replyToData: (msg.replyToData && msg.replyToData.content) ? {
+                  ...msg.replyToData,
+                  content: decryptData(msg.replyToData.content, password)
+                } : msg.replyToData
+            };
+        });
         
         decryptedMessages.push(...decryptedChunk);
         
@@ -757,7 +817,14 @@ export default function ChatInterface() {
         }
         
         setMessages(prev => {
-            if (prev.some(m => m._id === savedMsg._id)) return prev;
+            const index = prev.findIndex(m => m._id === savedMsg._id);
+            if (index !== -1) {
+                // If Pusher event arrived first (possibly with encrypted content), 
+                // replace it with our local plaintext version which is guaranteed correct.
+                const newMessages = [...prev];
+                newMessages[index] = savedMsg;
+                return newMessages;
+            }
             return [...prev, savedMsg];
         });
     });
@@ -814,16 +881,42 @@ export default function ChatInterface() {
     }
   };
 
-  const viewOTV = (msgId) => {
+  const viewOTV = async (msgId) => {
+     let revealedPassword = '';
      // 1. Reveal locally
      setMessages(prev => prev.map(m => {
          if (m._id === msgId) {
+             revealedPassword = m.content;
              return { ...m, isRevealed: true };
          }
          return m;
      }));
 
-     // 2. Delete from server immediately (so it can't be fetched again)
+     // 2. Auto-verify and Unlock
+     if (revealedPassword) {
+         try {
+             const res = await fetch('/api/conversations/verify', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     user1: user.username,
+                     user2: activeChat.username,
+                     password: revealedPassword,
+                     action: 'verify'
+                 })
+             });
+             const data = await res.json();
+             if (data.verified) {
+                 setVerifiedPasswords(prev => ({ ...prev, [activeChat.username]: revealedPassword }));
+                 showAlert('Chat Unlocked Successfully!');
+                 // History will be decrypted on next render due to verifiedPasswords state change
+             }
+         } catch (e) {
+             console.error("Auto-verify failed", e);
+         }
+     }
+
+     // 3. Delete from server immediately (so it can't be fetched again)
      // Use the existing delete logic but silent
      fetch('/api/pusher/message', {
         method: 'DELETE',
@@ -831,7 +924,7 @@ export default function ChatInterface() {
         body: JSON.stringify({ messageId: msgId, userId: user.username })
      }).catch(err => console.error("Failed to delete OTV", err));
 
-     // 3. Auto-expire/hide locally after 10 seconds
+     // 4. Auto-expire/hide locally after 30 seconds (longer to allow read/decryption)
      setTimeout(() => {
          setMessages(prev => prev.map(m => {
              if (m._id === msgId) {
@@ -839,7 +932,7 @@ export default function ChatInterface() {
              }
              return m;
          }));
-     }, 10000);
+     }, 30000);
   };
 
   const closeChat = () => {
@@ -935,35 +1028,35 @@ export default function ChatInterface() {
   };
 
   const renderLockedState = () => (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--slate-50)', padding: '2rem' }}>
-      <div className="avatar" style={{ width: '64px', height: '64px', marginBottom: '1.5rem' }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <div style={{ padding: '1.5rem', background: 'var(--slate-50)', borderTop: '1px solid var(--slate-200)', width: '100%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '400px', margin: '0 auto' }}>
+        <h3 style={{ marginBottom: '0.5rem', fontSize: '1rem' }}>{promptAction === 'setup' ? 'Secure this Chat' : 'Password Required'}</h3>
+        <p style={{ color: 'var(--slate-500)', textAlign: 'center', marginBottom: '1rem', fontSize: '0.85rem' }}>
+          {promptAction === 'setup' 
+            ? 'Set a shared password for this conversation.' 
+            : 'Enter the shared password to unlock messages.'}
+        </p>
+        <form onSubmit={handlePasswordSubmit} style={{ width: '100%', display: 'flex', gap: '8px' }}>
+          <input 
+            type="password" 
+            className="search-input" 
+            placeholder="Enter password" 
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            autoFocus
+            style={{ flex: 1 }}
+          />
+          <button type="submit" className="login-btn" style={{ width: 'auto', padding: '0 1.5rem' }} disabled={isVerifying}>
+            {isVerifying ? '...' : promptAction === 'setup' ? 'Set' : 'Unlock'}
+          </button>
+        </form>
       </div>
-      <h2 style={{ marginBottom: '0.5rem' }}>{promptAction === 'setup' ? 'Secure this Chat' : 'Password Required'}</h2>
-      <p style={{ color: 'var(--slate-500)', textAlign: 'center', marginBottom: '2rem', maxWidth: '300px' }}>
-        {promptAction === 'setup' 
-          ? 'Set a shared password for this conversation. Only those with the password can read or send messages.' 
-          : 'Enter the shared password to unlock this conversation.'}
-      </p>
-      <form onSubmit={handlePasswordSubmit} style={{ width: '100%', maxWidth: '300px' }}>
-        <input 
-          type="password" 
-          className="search-input" 
-          placeholder="Enter shared password" 
-          value={passwordInput}
-          onChange={(e) => setPasswordInput(e.target.value)}
-          autoFocus
-          style={{ textAlign: 'center', marginBottom: '1rem' }}
-        />
-        <button type="submit" className="login-btn" disabled={isVerifying}>
-          {isVerifying ? 'Securing...' : promptAction === 'setup' ? 'Set Password' : 'Unlock Chat'}
-        </button>
-      </form>
     </div>
   );
 
   const renderDeleteModal = () => (
     <div className="interaction-overlay" onClick={() => setMessageToDelete(null)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      {/* ... existing delete modal content ... */}
       <div 
         className="delete-modal"
         onClick={(e) => e.stopPropagation()}
@@ -975,30 +1068,13 @@ export default function ChatInterface() {
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
           <button 
             onClick={() => setMessageToDelete(null)}
-            style={{ 
-              padding: '0.6rem 1rem', 
-              background: 'var(--slate-100)', 
-              border: 'none', 
-              borderRadius: '8px', 
-              color: 'var(--slate-700)', 
-              fontWeight: '600', 
-              cursor: 'pointer' 
-            }}
+            style={{ padding: '0.6rem 1rem', background: 'var(--slate-100)', border: 'none', borderRadius: '8px', color: 'var(--slate-700)', fontWeight: '600', cursor: 'pointer' }}
           >
             Cancel
           </button>
           <button 
             onClick={() => handleDeleteMessage(messageToDelete)}
-            style={{ 
-              padding: '0.6rem 1rem', 
-              background: '#ef4444', 
-              border: 'none', 
-              borderRadius: '8px', 
-              color: 'white', 
-              fontWeight: '600', 
-              cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
-            }}
+            style={{ padding: '0.6rem 1rem', background: '#ef4444', border: 'none', borderRadius: '8px', color: 'white', fontWeight: '600', cursor: 'pointer', boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)' }}
           >
             Delete
           </button>
@@ -1007,9 +1083,68 @@ export default function ChatInterface() {
     </div>
   );
 
+  const renderNotificationsModal = () => (
+    <div className="interaction-overlay" onClick={() => setShowNotifications(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+       <div className="delete-modal" onClick={e => e.stopPropagation()} style={{ width: '400px', maxHeight: '500px', overflowY: 'auto' }}>
+           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+               <h3 style={{ margin: 0, color: 'var(--slate-800)' }}>Secure Inbox</h3>
+               <button onClick={() => setShowNotifications(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)' }}>
+                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+               </button>
+           </div>
+           
+           {notifications.length === 0 ? (
+               <div style={{ textAlign: 'center', color: 'var(--slate-400)', padding: '2rem 0' }}>Thinking about passwords? Nothing here yet.</div>
+           ) : (
+               notifications.map(n => (
+                   <div key={n._id} style={{ padding: '1rem', borderBottom: '1px solid var(--slate-100)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                           <span style={{ fontWeight: '600', color: 'var(--primary)' }}>{n.sender}</span>
+                           <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)' }}>{new Date(n.createdAt).toLocaleDateString()}</span>
+                       </div>
+                       <div style={{ background: 'var(--slate-50)', padding: '0.75rem', borderRadius: '8px', fontFamily: 'monospace', textAlign: 'center', fontSize: '1.1rem', letterSpacing: '1px', border: '1px dashed var(--slate-300)' }}>
+                           {n.content}
+                       </div>
+                       <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                           <button onClick={() => {
+                               // Copy
+                               copyToClipboard(n.content);
+                           }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-100)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                               Copy
+                           </button>
+                           <button onClick={() => {
+                               const pwd = n.content;
+                               const sender = n.sender;
+                               
+                               // 1. Immediately "Verify" locally since we trust the notification source
+                               setVerifiedPasswords(prev => ({ ...prev, [sender]: pwd }));
+                               
+                               // 2. Start Chat with password
+                               startChat({ username: sender }, pwd);
+                               
+                               // 3. UI Cleanup
+                               setShowPasswordPrompt(false);
+                               setPasswordInput(''); 
+                               setShowNotifications(false);
+                               
+                               // 4. Cleanup notification
+                               setNotifications(prev => prev.filter(x => x._id !== n._id));
+                               fetch('/api/notifications', { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: n._id}) });
+                           }} style={{ flex: 1, padding: '0.5rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                               Unlock Chat
+                           </button>
+                       </div>
+                   </div>
+               ))
+           )}
+       </div>
+    </div>
+  );
+
   return (
     <div className="app-layout">
       {messageToDelete && renderDeleteModal()}
+      {showNotifications && renderNotificationsModal()}
       {/* Sidebar */}
       <aside className={`sidebar ${showMobileChat ? 'mobile-hidden' : ''}`}>
         <header className="header" style={{ gap: '0.75rem', paddingLeft: '1.25rem' }}>
@@ -1033,6 +1168,11 @@ export default function ChatInterface() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
             )}
           </button>
+          <button onClick={() => setShowNotifications(true)} className="theme-toggle-btn" title="Secure Inbox" style={{ position: 'relative', background: 'none', border: 'none', color: notifications.length > 0 ? 'var(--primary)' : 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {notifications.length > 0 && <span style={{ position: 'absolute', top: '4px', right: '4px', width: '8px', height: '8px', background: '#e11d48', borderRadius: '50%' }}></span>}
+          </button>
+
           <button onClick={logout} className="logout-btn" title="Logout">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>
@@ -1051,20 +1191,26 @@ export default function ChatInterface() {
 
         <div className="user-list">
           {searchQuery.trim().length > 0 ? (
-            searchResults.map(u => (
-              <div key={u._id} className={`user-item ${activeChat?.username === u.username ? 'active' : ''}`} onClick={() => startChat(u)}>
-                <div className="avatar" style={{ background: 'var(--slate-200)', color: 'var(--slate-600)', position: 'relative' }}>
-                  {u.username[0].toUpperCase()}
-                  {onlineUsers.has(u.username) && <div className="online-indicator-small"></div>}
+            searchResults.length > 0 ? (
+              searchResults.map(u => (
+                <div key={u._id} className={`user-item ${activeChat?.username === u.username ? 'active' : ''}`} onClick={() => startChat(u)}>
+                  <div className="avatar" style={{ background: 'var(--slate-200)', color: 'var(--slate-600)', position: 'relative' }}>
+                    {u.username[0].toUpperCase()}
+                    {onlineUsers.has(u.username) && <div className="online-indicator-small"></div>}
+                  </div>
+                  <div className="user-info" style={{ flex: 1 }}>
+                    <span className="user-name">{u.username}</span>
+                  </div>
+                  {unreadCounts[u.username] > 0 && (
+                    <div className="unread-badge">{unreadCounts[u.username]}</div>
+                  )}
                 </div>
-                <div className="user-info" style={{ flex: 1 }}>
-                  <span className="user-name">{u.username}</span>
-                </div>
-                {unreadCounts[u.username] > 0 && (
-                  <div className="unread-badge">{unreadCounts[u.username]}</div>
-                )}
+              ))
+            ) : (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--slate-400)', fontSize: '0.9rem' }}>
+                 No users found matching "{searchQuery}"
               </div>
-            ))
+            )
           ) : (
             <>
               {recentContacts.length > 0 ? (
@@ -1111,16 +1257,30 @@ export default function ChatInterface() {
                     {isOtherUserTyping ? 'Typing...' : (onlineUsers.has(activeChat.username) ? 'Online' : 'Offline')}
                   </span>
                 </div>
-                <button className="lock-btn" onClick={handleSharePassword} title="Share Password" style={{ marginRight: '4px' }}>
+                <button className="lock-btn" onClick={handleSharePassword} title="Share Password / Setup" style={{ marginRight: '8px' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
                 </button>
-                <button className="lock-btn" onClick={closeChat} title="Lock Chat">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                
+                <button className="lock-btn" onClick={() => {
+                   // Lock & Exit: Clear password, close chat, go back
+                   if (activeChat) {
+                       setVerifiedPasswords(prev => {
+                           const next = { ...prev };
+                           delete next[activeChat.username];
+                           return next;
+                       });
+                       setActiveChat(null);
+                       setMessages([]);
+                       setShowMobileChat(false);
+                   }
+                }} title="Lock & Exit">
+                   {/* Padlock Icon indicating 'Secure/Locked' status */}
+                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </button>
               </div>
             </header>
 
-            {showPasswordPrompt ? renderLockedState() : isCheckingStatus ? (
+            {isCheckingStatus ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--slate-50)' }}>
                 <div className="avatar" style={{ background: 'transparent', color: 'var(--primary)', boxShadow: 'none' }}>
                   <svg className="animate-spin" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -1226,12 +1386,17 @@ export default function ChatInterface() {
                                      </div>
                                 ) : (
                                      <button onClick={() => viewOTV(m._id)} style={{border: 'none', background: 'var(--primary)', color: 'white', padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center', fontSize: '0.9rem', fontWeight: '500'}}>
-                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                         Reveal Password (10s)
+                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/></svg>
+                                         Receive Password & Unlock
                                      </button>
                                 )}
                             </div>
-                          ) : (m.type !== 'image' && m.content)}
+                          ) : (m.type !== 'image' && (m.content === '[Decryption Failed]' ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--slate-400)', fontStyle: 'italic' }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                              Locked Message
+                            </div>
+                          ) : m.content))}
 
                           <span className="message-time">
                             {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1350,32 +1515,34 @@ export default function ChatInterface() {
                   </div>
                 )}
 
-                <form className={`input-area ${isInputFocused ? 'focused' : ''}`} onSubmit={sendMessage}>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    ref={fileInputRef} 
-                    style={{ display: 'none' }} 
-                    onChange={handleImageSelect}
-                  />
-                  <button type="button" className="send-btn secondary" onClick={() => fileInputRef.current.click()} title="Send Image">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                  </button>
-                    <textarea
-                      ref={textareaRef}
-                      className="message-input"
-                      placeholder="Type a message..." 
-                      value={message}
-                      onChange={handleTextChange}
-                      onKeyDown={handleKeyDown}
-                      onFocus={() => setIsInputFocused(true)}
-                      onBlur={() => setIsInputFocused(false)}
-                      rows="1"
+                {showPasswordPrompt ? renderLockedState() : (
+                  <form className={`input-area ${isInputFocused ? 'focused' : ''}`} onSubmit={sendMessage}>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      ref={fileInputRef} 
+                      style={{ display: 'none' }} 
+                      onChange={handleImageSelect}
                     />
-                  <button type="submit" className="send-btn" disabled={!message.trim()}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  </button>
-                </form>
+                    <button type="button" className="send-btn secondary" onClick={() => fileInputRef.current.click()} title="Send Image">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    </button>
+                      <textarea
+                        ref={textareaRef}
+                        className="message-input"
+                        placeholder="Type a message..." 
+                        value={message}
+                        onChange={handleTextChange}
+                        onKeyDown={handleKeyDown}
+                        onFocus={() => setIsInputFocused(true)}
+                        onBlur={() => setIsInputFocused(false)}
+                        rows="1"
+                      />
+                    <button type="submit" className="send-btn" disabled={!message.trim()}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                  </form>
+                )}
               </>
             )}
           </>

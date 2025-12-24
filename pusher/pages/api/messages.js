@@ -1,6 +1,7 @@
 import { Message, Conversation } from '../../lib/models';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { verifyToken } from '../../lib/auth';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -9,8 +10,8 @@ export default async function handler(req, res) {
 
   const { user1, user2, password } = req.query;
 
-  if (!user1 || !user2 || !password) {
-    return res.status(400).json({ message: 'user1, user2, and password are required' });
+  if (!user1 || !user2) {
+    return res.status(400).json({ message: 'user1 and user2 are required' });
   }
 
   try {
@@ -18,24 +19,37 @@ export default async function handler(req, res) {
         await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-app');
     }
 
+    // 1. Session Authorization (JWT)
+    const token = verifyToken(req);
+    if (!token) {
+        return res.status(401).json({ message: 'Unauthorized: Session required' });
+    }
+
+    const normalizedTokenUser = token.username.toLowerCase();
+    const isParticipant = normalizedTokenUser === user1.toLowerCase() || normalizedTokenUser === user2.toLowerCase();
+
+    if (!isParticipant) {
+        return res.status(403).json({ message: 'Forbidden: You are not a participant in this conversation' });
+    }
+
     const participants = [user1, user2].sort();
     const conversation = await Conversation.findOne({ participants });
 
     if (!conversation) {
-        return res.status(401).json({ message: 'Unauthorized: Conversation not found' });
+        return res.status(404).json({ message: 'Conversation not found' });
     }
 
-    // Verify password (bcrypt check)
-    let isAuthorized = await bcrypt.compare(password, conversation.password);
-    
-    // Fallback: Check plaintext (if migration hasn't happened yet for this convo)
-    if (!isAuthorized && conversation.password === password) {
-        isAuthorized = true;
+    // 2. Conversation Password Authorization (Optional for fetch, required for decryption on client)
+    let isPasswordAuthorized = false;
+    if (password) {
+        isPasswordAuthorized = await bcrypt.compare(password, conversation.password);
+        if (!isPasswordAuthorized && conversation.password === password) {
+            isPasswordAuthorized = true;
+        }
     }
 
-    if (!isAuthorized) {
-        return res.status(401).json({ message: 'Unauthorized: Invalid password' });
-    }
+    // Note: We used to return 401 here if !isPasswordAuthorized. 
+    // Now we allow participants to proceed to fetch the (encrypted) messages.
 
     const { before, limit = 50, messageId } = req.query;
     
@@ -43,9 +57,12 @@ export default async function handler(req, res) {
        const message = await Message.findById(messageId);
        if (!message) return res.status(404).json({ message: 'Message not found' });
        
-       // Verify participants
-       if ((message.sender !== user1 && message.sender !== user2) || 
-           (message.receiver !== user1 && message.receiver !== user2)) {
+       // Verify participants of the specific message
+       const isMsgParticipant = 
+            (message.sender.toLowerCase() === user1.toLowerCase() && message.receiver.toLowerCase() === user2.toLowerCase()) || 
+            (message.sender.toLowerCase() === user2.toLowerCase() && message.receiver.toLowerCase() === user1.toLowerCase());
+
+       if (!isMsgParticipant) {
            return res.status(403).json({ message: 'Unauthorized access to message' });
        }
        

@@ -9,6 +9,11 @@ export default async function handler(req, res) {
   await dbConnect();
   const { q } = req.query;
 
+  // Session check
+  const { verifyToken } = await import('../../lib/auth');
+  const token = verifyToken(req);
+  if (!token) return res.status(401).json({ message: 'Unauthorized' });
+
   try {
     const normalizedQ = q?.trim().toLowerCase();
     const query = normalizedQ ? { username: { $regex: normalizedQ, $options: 'i' } } : {};

@@ -47,10 +47,20 @@ const InviteSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+const NotificationSchema = new mongoose.Schema({
+  recipient: { type: String, required: true },
+  sender: { type: String, required: true },
+  type: { type: String, enum: ['password_share'], default: 'password_share' },
+  content: { type: String, required: true }, // The password
+  read: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
+});
+
 // Check if models exist to prevent overwrite error in hot reload
 const User = mongoose.models.User || mongoose.model('User', UserSchema);
 const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);
 const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', ConversationSchema);
 const Invite = mongoose.models.Invite || mongoose.model('Invite', InviteSchema);
+const Notification = mongoose.models.Notification || mongoose.model('Notification', NotificationSchema);
 
-export { User, Message, Conversation, Invite };
+export { User, Message, Conversation, Invite, Notification };

@@ -23,7 +23,12 @@ export function AuthProvider({ children }) {
     setUser(userData);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch (e) {
+      console.error('Logout API failed', e);
+    }
     localStorage.removeItem('chat_user');
     setUser(null);
   };

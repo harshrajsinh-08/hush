@@ -13,6 +13,16 @@ export default async function handler(req, res) {
       await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-app');
     }
 
+    // Session check
+    const { verifyToken } = await import('../../../lib/auth');
+    const token = verifyToken(req);
+    if (!token) return res.status(401).json({ message: 'Unauthorized' });
+
+    const normalizedUser = token.username.toLowerCase();
+    if (normalizedUser !== user1.toLowerCase() && normalizedUser !== user2.toLowerCase()) {
+        return res.status(403).json({ message: 'Forbidden' });
+    }
+
     const participants = [user1, user2].sort();
     const conversation = await Conversation.findOne({ participants });
 
