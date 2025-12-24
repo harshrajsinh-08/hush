@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useAuth } from '../context/auth';
 import { useAlert } from '../context/AlertContext';
 
-export default function Login() {
+export default function Login({ initialInviteCode }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState(initialInviteCode || '');
+  const [showInviteInput, setShowInviteInput] = useState(!!initialInviteCode);
   const { login } = useAuth();
   const { showAlert } = useAlert();
   const [loading, setLoading] = useState(false);
@@ -20,13 +22,22 @@ export default function Login() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, inviteCode }),
       });
       const data = await res.json();
       if (res.ok) {
         login(data);
       } else {
-        showAlert(data.message);
+        if (res.status === 403) {
+            setShowInviteInput(true);
+            if (!inviteCode) {
+                showAlert("Registration requires an invite code");
+            } else {
+                showAlert(data.message);
+            }
+        } else {
+            showAlert(data.message);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -62,15 +73,26 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
-              style={{ textAlign: 'center' }}
+              style={{ textAlign: 'center', marginBottom: showInviteInput ? '1rem' : '0' }}
             />
+            {showInviteInput && (
+                <input
+                type="text"
+                className="search-input"
+                placeholder="Invite Code"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                disabled={loading}
+                style={{ textAlign: 'center', letterSpacing: '2px', textTransform: 'uppercase' }}
+              />
+            )}
           </div>
           <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? 'Connecting...' : 'Start Chatting'}
+            {loading ? 'Connecting...' : (showInviteInput ? 'Sign Up with Invite' : 'Start Chatting')}
           </button>
         </form>
         <p style={{ fontSize: '0.75rem', marginTop: '1.5rem', opacity: 0.7 }}>
-          New users: Entering a username and password will automatically create your account.
+          New users: Registration requires an <b>Invite Code</b>.
         </p>
       </div>
     </div>

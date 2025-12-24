@@ -1,5 +1,6 @@
 import { Message, Conversation } from '../../lib/models';
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -20,11 +21,37 @@ export default async function handler(req, res) {
     const participants = [user1, user2].sort();
     const conversation = await Conversation.findOne({ participants });
 
-    if (!conversation || conversation.password !== password) {
-      return res.status(401).json({ message: 'Unauthorized: Invalid or missing password' });
+    if (!conversation) {
+        return res.status(401).json({ message: 'Unauthorized: Conversation not found' });
     }
 
-    const { before, limit = 50 } = req.query;
+    // Verify password (bcrypt check)
+    let isAuthorized = await bcrypt.compare(password, conversation.password);
+    
+    // Fallback: Check plaintext (if migration hasn't happened yet for this convo)
+    if (!isAuthorized && conversation.password === password) {
+        isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+        return res.status(401).json({ message: 'Unauthorized: Invalid password' });
+    }
+
+    const { before, limit = 50, messageId } = req.query;
+    
+    if (messageId) {
+       const message = await Message.findById(messageId);
+       if (!message) return res.status(404).json({ message: 'Message not found' });
+       
+       // Verify participants
+       if ((message.sender !== user1 && message.sender !== user2) || 
+           (message.receiver !== user1 && message.receiver !== user2)) {
+           return res.status(403).json({ message: 'Unauthorized access to message' });
+       }
+       
+       return res.status(200).json(message);
+    }
+
     const query = {
       $or: [
         { sender: user1, receiver: user2 },

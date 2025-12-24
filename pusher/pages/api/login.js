@@ -27,6 +27,22 @@ export default async function handler(req, res) {
         return res.status(401).json({ message: 'Invalid password' });
       }
     } else {
+      // Check if Invite Code is valid
+      const { inviteCode } = req.body;
+      if (!inviteCode) {
+        return res.status(403).json({ message: 'Registration requires an invite code' });
+      }
+
+      const invite = await import('../../lib/models').then(m => m.Invite.findOne({ code: inviteCode, isUsed: false }));
+
+      if (!invite) {
+        return res.status(403).json({ message: 'Invalid or used invite code' });
+      }
+
+      // Mark invite as used
+      invite.isUsed = true;
+      await invite.save();
+
       // Create new user
       user = await User.create({ username: normalizedUsername, password });
     }

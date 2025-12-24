@@ -42,6 +42,13 @@
   
   /* WhatsApp-style Safe Area */
   --safe-top: env(safe-area-inset-top, 0px);
+
+  /* Theme Defaults (Light) */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
 }
 
 [data-theme="dark"] {
@@ -68,6 +75,13 @@
   --shadow-sm: 0 2px 4px rgba(0,0,0,0.2);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
   --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.4);
+
+  /* Theme Defaults (Dark) */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border-color: #334155;
 }
 
 * {
@@ -137,6 +151,26 @@ body {
     background: var(--glass-bg);
     backdrop-filter: var(--glass-blur);
   }
+}
+
+.lock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--slate-400);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.lock-btn:hover {
+  background: var(--slate-100);
+  color: var(--primary);
+  border-color: var(--slate-200);
 }
 
 .sidebar.mobile-hidden {
@@ -496,7 +530,43 @@ body {
   border-radius: 16px;
   display: block;
   background: var(--slate-100);
-  transition: opacity 0.3s ease;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.message-image-container img.pending {
+  filter: blur(4px);
+  opacity: 0.8;
+}
+
+.upload-progress-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.circular-progress {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 0 10px rgba(0,0,0,0.2);
+}
+
+.inner-circle {
+  width: 32px;
+  height: 32px;
+  background-color: rgba(0,0,0,0.5);
+  border-radius: 50%;
+  position: absolute;
 }
 
 .message-image-container img:hover {

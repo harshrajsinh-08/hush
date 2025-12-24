@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hush-v1';
+const CACHE_NAME = 'hush-v2-force-refresh';
 const urlsToCache = [
   '/',
   '/manifest.json',

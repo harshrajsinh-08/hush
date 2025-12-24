@@ -41,6 +41,7 @@ export default function ChatInterface() {
   const [messageToDelete, setMessageToDelete] = useState(null);
   
   const [isInputFocused, setIsInputFocused] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   
   const messagesEndRef = useRef(null);
   const messageRefs = useRef({}); // To store refs for each message to allow scrolling to them
@@ -55,18 +56,27 @@ export default function ChatInterface() {
     }
   }, [message]);
 
+  // Ref to access latest passwords inside Pusher callbacks without re-subscribing
+  const verifiedPasswordsRef = useRef(verifiedPasswords);
+
+  useEffect(() => {
+      verifiedPasswordsRef.current = verifiedPasswords;
+  }, [verifiedPasswords]);
+
   const encryptData = (data, password) => {
     return CryptoJS.AES.encrypt(data, password).toString();
   };
 
   const decryptData = (ciphertext, password) => {
+    if (!ciphertext) return '';
     try {
       const bytes = CryptoJS.AES.decrypt(ciphertext, password);
       const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-      return decrypted || '[Decryption Failed]';
+      return decrypted || '';
     } catch (e) {
       return '[Decryption Failed]';
     }
+    return '[Decryption Failed]';
   };
 
   const scrollToBottom = () => {
@@ -79,8 +89,12 @@ export default function ChatInterface() {
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js');
+      // FORCE UNREGISTER to fix stale cache issues on mobile
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+          registration.unregister()
+          .then(() => console.log("Service Worker Unregistered to force update"));
+        } 
       });
     }
   }, []);
@@ -164,14 +178,39 @@ export default function ChatInterface() {
     });
 
     userChannel.bind('message_deleted', ({ messageId }) => {
-      setMessages(prev => prev.filter(m => m._id !== messageId));
+      setMessages(prev => prev.filter(m => {
+          // If it's the message being deleted
+          if (m._id === messageId) {
+              // Keep it if it is a revealed OTV message (so user can finish reading)
+              if (m.type === 'otv' && m.isRevealed && !m.isExpired) {
+                  return true;
+              }
+              return false;
+          }
+          return true;
+      }));
     });
 
-    userChannel.bind('receive_message', (msg) => {
+    userChannel.bind('receive_message', async (msg) => {
       const otherUser = msg.sender === user.username ? msg.receiver : msg.sender;
-      const pwd = verifiedPasswords[otherUser];
+      const pwd = verifiedPasswordsRef.current[otherUser];
+
+      // If content is missing (large file), fetch it
+      if ((msg.type === 'image' || msg.type === 'video') && !msg.content) {
+         try {
+           const res = await fetch(`/api/messages?user1=${user.username}&user2=${otherUser}&password=${pwd}&messageId=${msg._id}`);
+           if (res.ok) {
+             msg = await res.json();
+           }
+         } catch (e) {
+           console.error('Failed to fetch full message', e);
+         }
+      }
+
       if (pwd) {
-        msg.content = decryptData(msg.content, pwd);
+        if (msg.type !== 'otv') {
+          msg.content = decryptData(msg.content, pwd);
+        }
         if (msg.caption) {
           msg.caption = decryptData(msg.caption, pwd);
         }
@@ -199,19 +238,38 @@ export default function ChatInterface() {
       }
     });
     
-    userChannel.bind('message_sent', (msg) => {
-      const otherUser = msg.sender === user.username ? msg.receiver : msg.sender;
-      const pwd = verifiedPasswords[otherUser];
-      if (pwd) {
-        msg.content = decryptData(msg.content, pwd);
-        if (msg.caption) {
-          msg.caption = decryptData(msg.caption, pwd);
-        }
-        if (msg.replyToData && msg.replyToData.content) {
-          msg.replyToData.content = decryptData(msg.replyToData.content, pwd);
-        }
+    userChannel.bind('message_sent', async (msg) => {
+       if ((msg.type === 'image' || msg.type === 'video') && !msg.content) {
+         try {
+           const pwd = verifiedPasswordsRef.current[activeChat?.username];
+           
+           const res = await fetch(`/api/messages?user1=${user.username}&user2=${msg.receiver}&password=${pwd}&messageId=${msg._id}`);
+           if (res.ok) {
+             msg = await res.json();
+           }
+         } catch (e) {
+           console.error('Failed to fetch full message', e);
+         }
       }
-      setMessages((prev) => [...prev, msg]);
+
+      setMessages((prev) => {
+        if (prev.some(m => m._id === msg._id)) return prev;
+        
+        const otherUser = msg.sender === user.username ? msg.receiver : msg.sender;
+        const pwd = verifiedPasswordsRef.current[otherUser];
+        if (pwd && msg.content && msg.content !== '[Decryption Failed]') {
+             try {
+                if (msg.type !== 'otv') {
+                   msg.content = decryptData(msg.content, pwd);
+                }
+                if (msg.caption) msg.caption = decryptData(msg.caption, pwd);
+                if (msg.replyToData && msg.replyToData.content) {
+                    msg.replyToData.content = decryptData(msg.replyToData.content, pwd);
+                }
+             } catch(e) {}
+        }
+        return [...prev, msg];
+      });
     });
 
     return () => {
@@ -221,7 +279,7 @@ export default function ChatInterface() {
         pusher.disconnect();
       }
     };
-  }, [user.username, verifiedPasswords, activeChat?.username]);
+  }, [user.username, activeChat?.username]);
 
   const handleSearchChange = (e) => {
     const q = e.target.value;
@@ -293,19 +351,37 @@ export default function ChatInterface() {
       if (!res.ok) throw new Error('Unauthorized');
       const history = await res.json();
       
-      const decryptedHistory = history.map(msg => ({
-        ...msg,
-        content: decryptData(msg.content, password),
-        caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
-        replyToData: (msg.replyToData && msg.replyToData.content) ? {
-          ...msg.replyToData,
-          content: decryptData(msg.replyToData.content, password)
-        } : msg.replyToData
-      }));
+      const decryptedMessages = [];
+      const chunkSize = 5;
+      
+      for (let i = 0; i < history.length; i += chunkSize) {
+        const chunk = history.slice(i, i + chunkSize);
+        
+        // Process chunk
+        const decryptedChunk = chunk.map(msg => ({
+            ...msg,
+            content: msg.type === 'otv' ? msg.content : decryptData(msg.content, password),
+            caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
+            replyToData: (msg.replyToData && msg.replyToData.content) ? {
+              ...msg.replyToData,
+              content: decryptData(msg.replyToData.content, password)
+            } : msg.replyToData
+        }));
+        
+        decryptedMessages.push(...decryptedChunk);
+        
+        // Update state incrementally to show progress if needed, 
+        // or just yield to let UI breathe. 
+        // Here we yield to keep UI responsive.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
 
-      setMessages(decryptedHistory);
-      if (history.length < 20) setHasMore(false);
-      setTimeout(scrollToBottom, 100);
+      // Race condition check: Ensure we are still looking at the same chat
+      if (activeChat?.username === otherUsername) {
+          setMessages(decryptedMessages);
+          if (history.length < 20) setHasMore(false);
+          setTimeout(scrollToBottom, 100);
+      }
     } catch (err) {
       console.error('Failed to fetch history', err);
     } finally {
@@ -341,17 +417,30 @@ export default function ChatInterface() {
 
       if (olderMessages.length < 20) setHasMore(false);
 
-      const decrypted = olderMessages.map(msg => ({
-        ...msg,
-        content: decryptData(msg.content, password),
-        caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
-        replyToData: (msg.replyToData && msg.replyToData.content) ? {
-          ...msg.replyToData,
-          content: decryptData(msg.replyToData.content, password)
-        } : msg.replyToData
-      }));
+      const decryptedMessages = [];
+      const chunkSize = 5;
 
-      setMessages(prev => [...decrypted, ...prev]);
+      for (let i = 0; i < olderMessages.length; i += chunkSize) {
+          const chunk = olderMessages.slice(i, i + chunkSize);
+          
+           // Process chunk
+        const decryptedChunk = chunk.map(msg => ({
+            ...msg,
+            content: msg.type === 'otv' ? msg.content : decryptData(msg.content, password),
+            caption: msg.caption ? decryptData(msg.caption, password) : msg.caption,
+            replyToData: (msg.replyToData && msg.replyToData.content) ? {
+              ...msg.replyToData,
+              content: decryptData(msg.replyToData.content, password)
+            } : msg.replyToData
+        }));
+        
+        decryptedMessages.push(...decryptedChunk);
+        
+        // Yield to main thread
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+
+      setMessages(prev => [...decryptedMessages, ...prev]);
     } catch (err) {
       console.error('Error loading more messages:', err);
     } finally {
@@ -481,34 +570,105 @@ export default function ChatInterface() {
     setCaption('');
   };
 
-  const sendImage = (base64, captionText) => {
+  const sendImage = async (base64, captionText) => {
     const password = verifiedPasswords[activeChat?.username];
     if (!activeChat || !password) return;
 
-    const msgData = {
+    // 1. Optimistic Update (Immediate Feedback)
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg = {
+      _id: tempId,
       sender: user.username,
       receiver: activeChat.username,
       type: 'image',
-      content: encryptData(base64, password),
-      caption: captionText ? encryptData(captionText, password) : null,
-      password: password,
+      content: base64, 
+      caption: captionText,
       timestamp: new Date().toISOString(),
-      replyTo: replyingTo?._id,
+      isPending: true,
       replyToData: replyingTo ? {
         sender: replyingTo.sender,
-        content: encryptData(replyingTo.content, password),
+        content: replyingTo.content,
         type: replyingTo.type
       } : null
     };
 
-    fetch('/api/pusher/message', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(msgData)
-    });
+    setMessages(prev => [...prev, optimisticMsg]);
     setImageToUpload(null);
     setCaption('');
     setReplyingTo(null);
+    setIsSending(true);
+
+    // 2. Yield to UI (allow render)
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    try {
+        // 3. Encrypt Data (Heavy)
+        const msgData = {
+          sender: user.username,
+          receiver: activeChat.username,
+          type: 'image',
+          content: encryptData(base64, password),
+          caption: captionText ? encryptData(captionText, password) : null,
+          password: password,
+          timestamp: new Date().toISOString(),
+          replyTo: replyingTo?._id,
+          replyToData: replyingTo ? {
+            sender: replyingTo.sender,
+            content: encryptData(replyingTo.content, password),
+            type: replyingTo.type
+          } : null
+        };
+
+        // 4. Send Request via XHR for progress
+        const savedMsg = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/pusher/message');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const percentComplete = (event.loaded / event.total) * 100;
+                    setMessages(prev => prev.map(m => 
+                        m._id === tempId ? { ...m, progress: percentComplete } : m
+                    ));
+                }
+            };
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(JSON.parse(xhr.responseText));
+                } else {
+                    reject(new Error('Upload failed'));
+                }
+            };
+
+            xhr.onerror = () => reject(new Error('Network error'));
+            
+            xhr.send(JSON.stringify(msgData));
+        });
+
+        // 5. Update with Real Message
+        // Prepare saved message for local view (using unencrypted content)
+        savedMsg.content = base64;
+        savedMsg.caption = captionText;
+        if (replyingTo) {
+             savedMsg.replyToData = {
+                 sender: replyingTo.sender,
+                 content: replyingTo.content,
+                 type: replyingTo.type
+             };
+        }
+        
+        // Replace optimistic message
+        setMessages(prev => prev.map(m => m._id === tempId ? savedMsg : m));
+    } catch (err) {
+        console.error('Failed to send image:', err);
+        showAlert('Failed to send image');
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(m => m._id !== tempId));
+    } finally {
+        setIsSending(false);
+    }
   };
 
   const handleReaction = (msg, emoji) => {
@@ -583,6 +743,23 @@ export default function ChatInterface() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msgData)
+    })
+    .then(res => res.json())
+    .then(savedMsg => {
+        // Use local unencrypted data for the sender's view
+        savedMsg.content = message;
+        if (replyingTo) {
+             savedMsg.replyToData = {
+                 sender: replyingTo.sender,
+                 content: replyingTo.content,
+                 type: replyingTo.type
+             };
+        }
+        
+        setMessages(prev => {
+            if (prev.some(m => m._id === savedMsg._id)) return prev;
+            return [...prev, savedMsg];
+        });
     });
     setMessage('');
     setReplyingTo(null);
@@ -601,9 +778,160 @@ export default function ChatInterface() {
     (m.sender === activeChat?.username && m.receiver === user.username)
   );
 
+
+  
+  const handleSharePassword = async () => {
+    if (!activeChat) return;
+    const password = verifiedPasswordsRef.current[activeChat.username];
+    if (!password) return;
+
+    try {
+        const msgData = {
+          sender: user.username,
+          receiver: activeChat.username,
+          type: 'otv',
+          content: password, 
+          password: password,
+          timestamp: new Date().toISOString()
+        };
+
+        const res = await fetch('/api/pusher/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(msgData)
+        });
+        
+        if (res.ok) {
+           const btn = document.querySelector('.lock-btn[title="Share Password"]');
+           if (btn) {
+               const original = btn.innerHTML;
+               btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>';
+               setTimeout(() => btn.innerHTML = original, 2000);
+           }
+        }
+    } catch (e) {
+        console.error("Failed to share password", e);
+    }
+  };
+
+  const viewOTV = (msgId) => {
+     // 1. Reveal locally
+     setMessages(prev => prev.map(m => {
+         if (m._id === msgId) {
+             return { ...m, isRevealed: true };
+         }
+         return m;
+     }));
+
+     // 2. Delete from server immediately (so it can't be fetched again)
+     // Use the existing delete logic but silent
+     fetch('/api/pusher/message', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: msgId, userId: user.username })
+     }).catch(err => console.error("Failed to delete OTV", err));
+
+     // 3. Auto-expire/hide locally after 10 seconds
+     setTimeout(() => {
+         setMessages(prev => prev.map(m => {
+             if (m._id === msgId) {
+                 return { ...m, isRevealed: false, isExpired: true };
+             }
+             return m;
+         }));
+     }, 10000);
+  };
+
   const closeChat = () => {
+    if (activeChat) {
+        setVerifiedPasswords(prev => {
+            const next = { ...prev };
+            delete next[activeChat.username];
+            return next;
+        });
+    }
+    setActiveChat(null);
     setShowMobileChat(false);
     setShowPasswordPrompt(false);
+    setMessages([]);
+    setHasMore(true);
+  };
+
+  const [inviteModalData, setInviteModalData] = useState(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    if (!deleteConfirmation) return;
+    setIsDeleting(true);
+    try {
+        const res = await fetch('/api/user', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username, password: deleteConfirmation })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            logout();
+        } else {
+            alert(data.message);
+        }
+    } catch (e) {
+        console.error("Delete failed", e);
+        alert("Server error");
+    } finally {
+        setIsDeleting(false);
+    }
+  };
+
+  const handleInvite = async () => {
+    try {
+        const res = await fetch('/api/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user.username })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            const url = `${window.location.origin}/?invite=${data.code}`;
+            setInviteModalData(url);
+        } else {
+            console.error("Failed to generate invite");
+        }
+    } catch (e) {
+        console.error("Error generating invite", e);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+            .then(() => alert("Copied!"))
+            .catch(err => {
+                console.error("Clipboard failed", err);
+                fallbackCopy(text);
+            });
+    } else {
+        fallbackCopy(text);
+    }
+  };
+
+  const fallbackCopy = (text) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";  // Avoid scrolling to bottom
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+        document.execCommand('copy');
+        alert("Copied!");
+    } catch (err) {
+        console.error('Fallback: Oops, unable to copy', err);
+        alert("Could not copy automatically. Please copy the link manually.");
+    }
+    document.body.removeChild(textArea);
   };
 
   const renderLockedState = () => (
@@ -685,11 +1013,19 @@ export default function ChatInterface() {
       {/* Sidebar */}
       <aside className={`sidebar ${showMobileChat ? 'mobile-hidden' : ''}`}>
         <header className="header" style={{ gap: '0.75rem', paddingLeft: '1.25rem' }}>
-          <img src="/logo.svg" alt="HUSH" style={{ width: '32px', height: '32px' }} />
+          <div onClick={() => setShowProfileModal(true)} style={{ cursor: 'pointer', position: 'relative' }} title="Profile Settings">
+            <div className="avatar" style={{ width: '40px', height: '40px', fontSize: '1.1rem', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
+              {user.username.charAt(0).toUpperCase()}
+            </div>
+            <div className="online-indicator-small" style={{ width: '10px', height: '10px', right: '-2px', bottom: '-2px' }} />
+          </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, lineHeight: 1, letterSpacing: '-0.02em', color: 'var(--primary)' }}>Hush</h2>
             <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Private Messenger</span>
           </div>
+          <button onClick={handleInvite} className="theme-toggle-btn" title="Invite a Friend" style={{ background: 'none', border: 'none', color: 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </button>
           <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme" style={{ background: 'none', border: 'none', color: 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
             {theme === 'light' ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -764,15 +1100,23 @@ export default function ChatInterface() {
               <button className="back-btn" onClick={closeChat}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
               </button>
-              <div className="avatar" style={{ width: '36px', height: '36px', position: 'relative' }}>
-                {activeChat.username[0].toUpperCase()}
-                {onlineUsers.has(activeChat.username) && <div className="online-indicator-small"></div>}
-              </div>
-              <div>
-                <h2 style={{ fontSize: '1rem' }}>{activeChat.username}</h2>
-                <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
-                  {isOtherUserTyping ? 'Typing...' : (onlineUsers.has(activeChat.username) ? 'Online' : 'Offline')}
-                </span>
+              <div className="header-info" style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', paddingRight: '1rem' }}>
+                <div className="avatar" style={{ width: '36px', height: '36px', position: 'relative', flexShrink: 0 }}>
+                  {activeChat.username[0].toUpperCase()}
+                  {onlineUsers.has(activeChat.username) && <div className="online-indicator-small"></div>}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h2 style={{ fontSize: '1rem', margin: 0 }}>{activeChat.username}</h2>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
+                    {isOtherUserTyping ? 'Typing...' : (onlineUsers.has(activeChat.username) ? 'Online' : 'Offline')}
+                  </span>
+                </div>
+                <button className="lock-btn" onClick={handleSharePassword} title="Share Password" style={{ marginRight: '4px' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                </button>
+                <button className="lock-btn" onClick={closeChat} title="Lock Chat">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                </button>
               </div>
             </header>
 
@@ -848,9 +1192,17 @@ export default function ChatInterface() {
 
                           {m.type === 'image' && (
                             <div className="message-image-container">
+                              {m.progress !== undefined && m.isPending && (
+                                <div className="upload-progress-overlay">
+                                  <div className="circular-progress" style={{background: `conic-gradient(var(--primary) ${m.progress * 3.6}deg, rgba(255,255,255,0.2) 0deg)`}}>
+                                    <div className="inner-circle"></div>
+                                  </div>
+                                </div>
+                              )}
                               <img 
                                 src={m.content} 
                                 alt="shared" 
+                                className={m.isPending ? 'pending' : ''}
                                 onClick={() => setPreviewImage(m.content)}
                               />
                               {m.caption && (
@@ -859,7 +1211,27 @@ export default function ChatInterface() {
                             </div>
                           )}
                           
-                          {m.type !== 'image' && m.content}
+
+                          
+                          {m.type === 'otv' ? (
+                            <div className="otv-message" style={{ background: 'var(--slate-50)', padding: '0.5rem', borderRadius: '8px', minWidth: '200px' }}>
+                                {m.isExpired ? (
+                                     <span style={{fontStyle: 'italic', color: 'var(--slate-400)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                        Password Expired
+                                     </span>
+                                ) : m.isRevealed ? (
+                                     <div style={{fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 'bold', padding: '0.5rem', background: '#e0e7ff', color: '#4338ca', borderRadius: '8px', textAlign: 'center', border: '1px dashed #4338ca'}}>
+                                         {m.content}
+                                     </div>
+                                ) : (
+                                     <button onClick={() => viewOTV(m._id)} style={{border: 'none', background: 'var(--primary)', color: 'white', padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center', fontSize: '0.9rem', fontWeight: '500'}}>
+                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                         Reveal Password (10s)
+                                     </button>
+                                )}
+                            </div>
+                          ) : (m.type !== 'image' && m.content)}
 
                           <span className="message-time">
                             {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -867,7 +1239,11 @@ export default function ChatInterface() {
 
                           {m.sender === user.username && (
                             <span className={`ticks ${m.read ? 'read' : ''}`}>
-                                {m.read ? ' ✓✓' : ' ✓'}
+                                {m.isPending ? (
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                ) : (
+                                    m.read ? ' ✓✓' : ' ✓'
+                                )}
                             </span>
                           )}
 
@@ -930,8 +1306,12 @@ export default function ChatInterface() {
                         onChange={(e) => setCaption(e.target.value)}
                         autoFocus
                       />
-                      <button type="submit" className="send-btn">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                      <button type="submit" className="send-btn" disabled={isSending}>
+                        {isSending ? (
+                          <div className="animate-spin" style={{ width: '20px', height: '20px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%' }}></div>
+                        ) : (
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        )}
                       </button>
                     </form>
                   </div>
@@ -1011,6 +1391,99 @@ export default function ChatInterface() {
           </div>
         )}
       </main>
+      {inviteModalData && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}>
+            <div style={{ width: '56px', height: '56px', background: 'var(--primary)', borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem auto', boxShadow: '0 4px 6px -1px rgba(var(--primary-rgb), 0.3)' }}>
+               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            </div>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Invite a Friend</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.95rem', lineHeight: '1.5' }}>
+              Share this unique link. The invite code is valid for one use only.
+            </p>
+            
+            <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+              {inviteModalData}
+            </div>
+
+            <button 
+              onClick={() => copyToClipboard(inviteModalData)}
+              style={{ width: '100%', padding: '0.875rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', marginBottom: '0.75rem', fontSize: '1rem', transition: 'transform 0.1s' }}
+            >
+              Copy Link
+            </button>
+            <button 
+              onClick={() => setInviteModalData(null)}
+              style={{ width: '100%', padding: '0.875rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: '500' }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {showProfileModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}>
+             <h3 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Account Settings</h3>
+             
+             <div style={{ marginBottom: '2rem' }}>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Logged in as</p>
+                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--primary)' }}>{user.username}</div>
+             </div>
+
+             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+                <p style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '0.5rem' }}>Danger Zone</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                    Permanently delete your account and all messages. This cannot be undone.
+                </p>
+                
+                <input 
+                    type="password" 
+                    placeholder="Enter password to confirm"
+                    value={deleteConfirmation}
+                    onChange={(e) => setDeleteConfirmation(e.target.value)}
+                    style={{ 
+                        width: '100%', 
+                        padding: '0.75rem', 
+                        borderRadius: '8px', 
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                        marginBottom: '1rem',
+                        fontSize: '0.9rem'
+                    }}
+                />
+
+                <button 
+                  onClick={handleDeleteAccount}
+                  disabled={!deleteConfirmation || isDeleting}
+                  style={{ 
+                      width: '100%', 
+                      padding: '0.875rem', 
+                      background: '#ef4444', 
+                      color: 'white', 
+                      border: 'none', 
+                      borderRadius: '10px', 
+                      fontWeight: '600', 
+                      cursor: (!deleteConfirmation || isDeleting) ? 'not-allowed' : 'pointer', 
+                      marginBottom: '0.75rem',
+                      opacity: (!deleteConfirmation || isDeleting) ? 0.6 : 1
+                  }}
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Account'}
+                </button>
+             </div>
+
+             <button 
+               onClick={() => { setShowProfileModal(false); setDeleteConfirmation(''); }}
+               style={{ width: '100%', padding: '0.75rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.95rem' }}
+             >
+               Cancel
+             </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
