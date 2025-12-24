@@ -1,4 +1,4 @@
-import { Conversation, Message } from '../../../lib/models';
+import { Conversation, Message, Notification } from '../../../lib/models';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { verifyToken } from '../../../lib/auth';
@@ -51,11 +51,8 @@ export default async function handler(req, res) {
       });
       await conversation.save();
 
-      // NEW: Automatically send an OTV message to the recipient with the password
       // NEW: Automatically share password via Secure Inbox (Notification)
       try {
-        const { Notification } = await import('../../../lib/models');
-        
         const sender = u1; // u1 is user1.toLowerCase()
         const receiver = u2; // u2 is user2.toLowerCase()
 
