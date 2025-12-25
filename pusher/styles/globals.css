@@ -413,6 +413,7 @@ body {
   animation: messageAppear 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow-wrap: break-word;
   word-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 @keyframes messageAppear {
@@ -578,6 +579,7 @@ body {
   font-size: 0.92rem;
   background: transparent;
   margin-top: 4px;
+  white-space: pre-wrap;
 }
 
 .message.received .image-caption {
