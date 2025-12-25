@@ -988,11 +988,11 @@ export default function ChatInterface() {
         if (res.ok) {
             logout();
         } else {
-            alert(data.message);
+            showAlert(data.message);
         }
     } catch (e) {
         console.error("Delete failed", e);
-        alert("Server error");
+        showAlert("Server error");
     } finally {
         setIsDeleting(false);
     }
@@ -1020,7 +1020,7 @@ export default function ChatInterface() {
   const copyToClipboard = (text) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text)
-            .then(() => alert("Copied!"))
+            .then(() => showAlert("Copied!"))
             .catch(err => {
                 console.error("Clipboard failed", err);
                 fallbackCopy(text);
@@ -1039,10 +1039,10 @@ export default function ChatInterface() {
     textArea.select();
     try {
         document.execCommand('copy');
-        alert("Copied!");
+        showAlert("Copied!");
     } catch (err) {
         console.error('Fallback: Oops, unable to copy', err);
-        alert("Could not copy automatically. Please copy the link manually.");
+        showAlert("Could not copy automatically. Please copy the link manually.");
     }
     document.body.removeChild(textArea);
   };
