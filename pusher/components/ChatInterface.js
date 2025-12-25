@@ -26,6 +26,7 @@ export default function ChatInterface() {
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const typingTimeoutRef = useRef(null);
+  const isTypingRef = useRef(false);
   const [reactingToMessage, setReactingToMessage] = useState(null);
   const [imageToUpload, setImageToUpload] = useState(null);
   const [caption, setCaption] = useState('');
@@ -62,6 +63,11 @@ export default function ChatInterface() {
 
   // Ref to access latest passwords inside Pusher callbacks without re-subscribing
   const verifiedPasswordsRef = useRef(verifiedPasswords);
+  const activeChatRef = useRef(activeChat);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   useEffect(() => {
       verifiedPasswordsRef.current = verifiedPasswords;
@@ -346,14 +352,15 @@ export default function ChatInterface() {
 
   const startChat = async (otherUser, initialPassword = null) => {
     if (otherUser.username === user.username) return;
+    setIsCheckingStatus(true);
     setActiveChat(otherUser);
+    activeChatRef.current = otherUser;
     setSearchQuery('');
     setSearchResults([]);
     setShowMobileChat(true);
     setIsOtherUserTyping(false);
     setMessages([]);
     setHasMore(true);
-    setIsCheckingStatus(true);
     setShowPasswordPrompt(false);
 
     // Update unread count locally and notify server
@@ -422,10 +429,10 @@ export default function ChatInterface() {
       });
 
       // Race condition check: Ensure we are still looking at the same chat
-      if (activeChat?.username === otherUsername) {
+      if (activeChatRef.current?.username === otherUsername) {
           setMessages(decryptedMessages);
           if (history.length < 20) setHasMore(false);
-          setTimeout(scrollToBottom, 100);
+          setTimeout(scrollToBottom, 50);
       }
     } catch (err) {
       console.error('Failed to fetch history', err);
@@ -462,11 +469,14 @@ export default function ChatInterface() {
     if (isLoadingMore || !hasMore || messages.length === 0) return;
     
     setIsLoadingMore(true);
-    const password = verifiedPasswords[activeChat.username] || '';
+    const targetChat = activeChatRef.current;
+    if (!targetChat) return;
+
+    const password = verifiedPasswords[targetChat.username] || '';
     const firstMsgTimestamp = messages[0].timestamp;
 
     try {
-      const res = await fetch(`/api/messages?user1=${user.username}&user2=${activeChat.username}&password=${password}&before=${firstMsgTimestamp}&limit=20`);
+      const res = await fetch(`/api/messages?user1=${user.username}&user2=${targetChat.username}&password=${password}&before=${firstMsgTimestamp}&limit=20`);
       if (!res.ok) return;
       
       const olderMessages = await res.json();
@@ -498,9 +508,16 @@ export default function ChatInterface() {
         
         // Yield to main thread
         await new Promise(resolve => setTimeout(resolve, 0));
+        
+        // Safety check: if chat switched while processing, abort
+        if (activeChatRef.current?.username !== targetChat.username) return;
       }
 
-      setMessages(prev => [...decryptedMessages, ...prev]);
+      setMessages(prev => {
+          // Final safety check before state update
+          if (activeChatRef.current?.username !== targetChat.username) return prev;
+          return [...decryptedMessages, ...prev];
+      });
     } catch (err) {
       console.error('Error loading more messages:', err);
     } finally {
@@ -752,15 +769,20 @@ export default function ChatInterface() {
     setMessage(e.target.value);
     
     if (activeChat) {
-      fetch('/api/pusher/typing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receiver: activeChat.username, typing: true, sender: user.username })
-      });
+      // Only notify server when we START typing (throttle)
+      if (!isTypingRef.current) {
+        isTypingRef.current = true;
+        fetch('/api/pusher/typing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ receiver: activeChat.username, typing: true, sender: user.username })
+        });
+      }
       
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       
       typingTimeoutRef.current = setTimeout(() => {
+        isTypingRef.current = false;
         fetch('/api/pusher/typing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1290,6 +1312,15 @@ export default function ChatInterface() {
             ) : (
               <>
                 <div className="messages-area" onScroll={handleScroll}>
+                  {showPasswordPrompt ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--slate-400)', gap: '1rem' }}>
+                      <div className="avatar" style={{ background: 'var(--slate-100)', color: 'var(--slate-400)', width: '64px', height: '64px' }}>
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      </div>
+                      <p style={{ fontWeight: '500' }}>Conversation Locked</p>
+                    </div>
+                  ) : (
+                    <>
                   {isLoadingMore && <div className="loading-indicator">Loading older messages...</div>}
                   {isLoadingHistory ? (
                     <div className="loading-indicator" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', height: '100%' }}>
@@ -1454,6 +1485,8 @@ export default function ChatInterface() {
                       );
                     })
                   )}
+                  </>
+                  )}
                   <div ref={messagesEndRef} />
                 </div>
 
@@ -1524,7 +1557,6 @@ export default function ChatInterface() {
                     </button>
                   </div>
                 )}
-
                 {showPasswordPrompt ? renderLockedState() : (
                   <form className={`input-area ${isInputFocused ? 'focused' : ''}`} onSubmit={sendMessage}>
                     <input 
