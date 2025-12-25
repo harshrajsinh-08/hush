@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const { user1, user2, password } = req.query;
+  const { user1, user2 } = req.query;
 
   if (!user1 || !user2) {
     return res.status(400).json({ message: 'user1 and user2 are required' });
@@ -39,17 +39,8 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: 'Conversation not found' });
     }
 
-    // 2. Conversation Password Authorization (Optional for fetch, required for decryption on client)
-    let isPasswordAuthorized = false;
-    if (password) {
-        isPasswordAuthorized = await bcrypt.compare(password, conversation.password);
-        if (!isPasswordAuthorized && conversation.password === password) {
-            isPasswordAuthorized = true;
-        }
-    }
-
-    // Note: We used to return 401 here if !isPasswordAuthorized. 
-    // Now we allow participants to proceed to fetch the (encrypted) messages.
+    // Note: We allow participants to proceed to fetch the (encrypted) messages.
+    // The password is no longer sent or verified over the wire.
 
     const { before, limit = 50, messageId } = req.query;
     

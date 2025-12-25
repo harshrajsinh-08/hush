@@ -405,7 +405,7 @@ export default function ChatInterface() {
   const fetchHistory = async (otherUsername, password) => {
     setIsLoadingHistory(true);
     try {
-      const res = await fetch(`/api/messages?user1=${user.username}&user2=${otherUsername}&password=${password || ''}&limit=20`);
+      const res = await fetch(`/api/messages?user1=${user.username}&user2=${otherUsername}&limit=20`);
       if (!res.ok) {
         if (res.status === 401) console.warn('Unauthorized access to history');
         return;
@@ -476,7 +476,7 @@ export default function ChatInterface() {
     const firstMsgTimestamp = messages[0].timestamp;
 
     try {
-      const res = await fetch(`/api/messages?user1=${user.username}&user2=${targetChat.username}&password=${password}&before=${firstMsgTimestamp}&limit=20`);
+      const res = await fetch(`/api/messages?user1=${user.username}&user2=${targetChat.username}&before=${firstMsgTimestamp}&limit=20`);
       if (!res.ok) return;
       
       const olderMessages = await res.json();
@@ -686,7 +686,6 @@ export default function ChatInterface() {
           type: 'image',
           content: encryptData(base64, password),
           caption: captionText ? encryptData(captionText, password) : null,
-          password: password,
           timestamp: new Date().toISOString(),
           replyTo: replyingTo?._id,
           replyToData: replyingTo ? {
@@ -811,7 +810,6 @@ export default function ChatInterface() {
       receiver: activeChat.username,
       type: 'text',
       content: encryptData(message, password),
-      password: password,
       timestamp: new Date().toISOString(),
       replyTo: replyingTo?._id,
       replyToData: replyingTo ? {
@@ -1127,35 +1125,39 @@ export default function ChatInterface() {
                        <div style={{ background: 'var(--slate-50)', padding: '0.75rem', borderRadius: '8px', fontFamily: 'monospace', textAlign: 'center', fontSize: '1.1rem', letterSpacing: '1px', border: '1px dashed var(--slate-300)' }}>
                            {n.content}
                        </div>
-                       <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                           <button onClick={() => {
-                               // Copy
-                               copyToClipboard(n.content);
-                           }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-100)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                               Copy
-                           </button>
-                           <button onClick={() => {
-                               const pwd = n.content;
-                               const sender = n.sender;
-                               
-                               // 1. Immediately "Verify" locally since we trust the notification source
-                               setVerifiedPasswords(prev => ({ ...prev, [sender]: pwd }));
-                               
-                               // 2. Start Chat with password
-                               startChat({ username: sender }, pwd);
-                               
-                               // 3. UI Cleanup
-                               setShowPasswordPrompt(false);
-                               setPasswordInput(''); 
-                               setShowNotifications(false);
-                               
-                               // 4. Cleanup notification
-                               setNotifications(prev => prev.filter(x => x._id !== n._id));
-                               fetch('/api/notifications', { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: n._id}) });
-                           }} style={{ flex: 1, padding: '0.5rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                               Unlock Chat
-                           </button>
-                       </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                            <button onClick={() => {
+                                copyToClipboard(n.content);
+                                // Delete after copy to ensure it doesn't stay
+                                setNotifications(prev => prev.filter(x => x._id !== n._id));
+                                fetch('/api/notifications', { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: n._id}) });
+                            }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-100)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                Copy
+                            </button>
+                            <button onClick={() => {
+                                // Just delete/dismiss
+                                setNotifications(prev => prev.filter(x => x._id !== n._id));
+                                fetch('/api/notifications', { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: n._id}) });
+                            }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-100)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                Dismiss
+                            </button>
+                            <button onClick={() => {
+                                const pwd = n.content;
+                                const sender = n.sender;
+                                
+                                setVerifiedPasswords(prev => ({ ...prev, [sender]: pwd }));
+                                startChat({ username: sender }, pwd);
+                                
+                                setShowPasswordPrompt(false);
+                                setPasswordInput(''); 
+                                setShowNotifications(false);
+                                
+                                setNotifications(prev => prev.filter(x => x._id !== n._id));
+                                fetch('/api/notifications', { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: n._id}) });
+                            }} style={{ width: '100%', padding: '0.6rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '600' }}>
+                                Unlock Chat
+                            </button>
+                        </div>
                    </div>
                ))
            )}

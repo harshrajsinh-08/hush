@@ -34,14 +34,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const { sender, receiver, content, password, type } = req.body;
+  const { sender, receiver, content, type } = req.body;
 
   try {
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-app');
     }
 
-    if (!sender || !receiver || !content || !password) {
+    if (!sender || !receiver || !content) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
@@ -54,24 +54,12 @@ export default async function handler(req, res) {
         return res.status(403).json({ message: 'Forbidden: Sender mismatch' });
     }
 
-    // 2. Conversation Password Verification
+    // 2. Conversation Existence Verification
     const participants = [sender, receiver].sort();
     const conversation = await Conversation.findOne({ participants });
-
-    if (!conversation) {
-        return res.status(401).json({ message: 'Unauthorized: Conversation not found' });
-    }
-
-    // Verify password (bcrypt check)
-    let isAuthorized = await bcrypt.compare(password, conversation.password);
     
-    // Fallback: Check plaintext (if migration hasn't happened yet for this convo)
-    if (!isAuthorized && conversation.password === password) {
-        isAuthorized = true;
-    }
-
-    if (!isAuthorized) {
-        return res.status(401).json({ message: 'Unauthorized: Invalid password' });
+    if (!conversation) {
+        return res.status(403).json({ message: 'Forbidden: Conversation not found' });
     }
 
     const newMessage = new Message({

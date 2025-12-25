@@ -53,7 +53,7 @@ const NotificationSchema = new mongoose.Schema({
   type: { type: String, enum: ['password_share'], default: 'password_share' },
   content: { type: String, required: true }, // The password
   read: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now, expires: 86400 } // Auto-delete after 24 hours
 });
 
 // Check if models exist to prevent overwrite error in hot reload
