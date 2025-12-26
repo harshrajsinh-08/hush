@@ -11,6 +11,7 @@ export default function Login({ initialInviteCode }) {
   const { showAlert } = useAlert();
   const [loading, setLoading] = useState(false);
 
+  // Login aur Sign Up ki main logic yahan hai
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) return;

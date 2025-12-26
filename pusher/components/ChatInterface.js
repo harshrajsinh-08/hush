@@ -95,14 +95,16 @@ export default function ChatInterface() {
       }
   }, [verifiedPasswords, activeChat?.username]);
 
-  const encryptData = (data, password) => {
-    return CryptoJS.AES.encrypt(data, password).toString();
+  // Message ko lock karne ke liye function - E2EE ki jaan
+  const encryptData = (data, key) => {
+    return CryptoJS.AES.encrypt(data, key).toString();
   };
 
-  const decryptData = (ciphertext, password) => {
+  // Message ko unlock karne ke liye function
+  const decryptData = (ciphertext, key) => {
     if (!ciphertext) return '';
     try {
-      const bytes = CryptoJS.AES.decrypt(ciphertext, password);
+      const bytes = CryptoJS.AES.decrypt(ciphertext, key);
       const decrypted = bytes.toString(CryptoJS.enc.Utf8);
       // If bytes are valid but empty string results, or just empty, consider failed for chat purposes
       // unless original was empty (but we check !ciphertext above)
@@ -399,7 +401,7 @@ export default function ChatInterface() {
     } catch (err) {
       setIsCheckingStatus(false);
       showAlert('Failed to check conversation status');
-    }
+    }  
   };
 
   const fetchHistory = async (otherUsername, password) => {
@@ -805,6 +807,7 @@ export default function ChatInterface() {
       });
     }
 
+    // Message send karne ki logic - Content end-to-end encrypt hota hai
     const msgData = {
       sender: user.username,
       receiver: activeChat.username,
@@ -1103,6 +1106,7 @@ export default function ChatInterface() {
     </div>
   );
 
+  // Secure Inbox render karne ki logic
   const renderNotificationsModal = () => (
     <div className="interaction-overlay" onClick={() => setShowNotifications(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
        <div className="delete-modal" onClick={e => e.stopPropagation()} style={{ width: '400px', maxHeight: '500px', overflowY: 'auto' }}>
@@ -1698,8 +1702,3 @@ export default function ChatInterface() {
     </div>
   );
 }
-
-
-
-
-

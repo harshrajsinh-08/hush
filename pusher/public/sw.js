@@ -13,7 +13,7 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Never cache API requests
+  //api req kabhi cache nahi karni hai 
   if (event.request.url.includes('/api/')) {
     return;
   }

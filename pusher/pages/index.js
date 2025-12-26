@@ -9,7 +9,7 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [inviteCode, setInviteCode] = useState(null);
 
-  // Set this to true to enable maintenance mode manually
+  // Check karo agar maintenance mode on hai toh maintenance page dikhao
   const isMaintenanceMode = process.env.NEXT_PUBLIC_MAINTENANCE_MODE === 'true' || false;
 
   useEffect(() => {
@@ -21,10 +21,12 @@ export default function Home() {
 
   if (!mounted) return null;
 
+  // Agar maintenance mode true hai toh yahi se rukh jao
   if (isMaintenanceMode) {
     return <Maintenance />;
   }
 
+  // Agar user logged in nahi hai toh Login page dikhao
   if (!user) {
     return <Login initialInviteCode={inviteCode} />;
   }
