@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
 
   if (token.username.toLowerCase() !== username.toLowerCase()) {
-      return res.status(403).json({ message: 'Forbidden: Access denied' });
+    return res.status(403).json({ message: 'Forbidden: Access denied' });
   }
 
   try {
@@ -38,29 +38,36 @@ export default async function handler(req, res) {
     const recentContacts = await Message.aggregate([
       { $match: { $or: [{ sender: username }, { receiver: username }] } },
       { $sort: { timestamp: -1 } },
-      { $group: {
+      {
+        $group: {
           _id: { $cond: { if: { $eq: ['$sender', username] }, then: '$receiver', else: '$sender' } },
           lastTimestamp: { $first: '$timestamp' }
-      }},
+        }
+      },
       { $sort: { lastTimestamp: -1 } },
       { $limit: 20 }
     ]);
 
-    // Filter out deleted users
+    // Filter out deleted users and select profile fields
     const contactUsernames = recentContacts.map(c => c._id);
-    const existingUsers = await User.find({ username: { $in: contactUsernames } }).select('username');
-    const existingUsernames = new Set(existingUsers.map(u => u.username));
+    const existingUsers = await User.find({ username: { $in: contactUsernames } }).select('username avatar status');
+    const existingUsersMap = existingUsers.reduce((acc, u) => {
+      acc[u.username] = u;
+      return acc;
+    }, {});
 
-    const validContacts = recentContacts.filter(c => existingUsernames.has(c._id));
+    const validContacts = recentContacts.filter(c => existingUsersMap[c._id]);
 
     // Format contacts list
     const contacts = validContacts.map(c => ({
       username: c._id,
+      avatar: existingUsersMap[c._id].avatar,
+      status: existingUsersMap[c._id].status,
       unreadCount: result[c._id] || 0,
       lastTimestamp: c.lastTimestamp
     }));
 
-    res.status(200).json({ 
+    res.status(200).json({
       unreadCounts: result,
       contacts: contacts,
       totalUnread: unreadCounts.reduce((sum, curr) => sum + curr.count, 0)

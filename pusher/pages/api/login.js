@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   try {
     // Find user
     let user = await User.findOne({ username: normalizedUsername });
-    
+
     if (user) {
       // Check password
       const isMatch = await bcrypt.compare(password, user.password);
@@ -69,7 +69,9 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', cookie);
     res.status(200).json({
       username: user.username,
-      _id: user._id
+      _id: user._id,
+      avatar: user.avatar,
+      status: user.status
     });
   } catch (error) {
     console.error(error);

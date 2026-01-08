@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   try {
     const normalizedQ = q?.trim().toLowerCase();
     const query = normalizedQ ? { username: { $regex: normalizedQ, $options: 'i' } } : {};
-    const users = await User.find(query).limit(20).select('username _id');
+    const users = await User.find(query).limit(20).select('username avatar status _id');
     res.status(200).json(users);
   } catch (error) {
     console.error(error);

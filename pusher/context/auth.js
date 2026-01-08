@@ -8,14 +8,29 @@ export function AuthProvider({ children }) {
   const router = useRouter();
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('chat_user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
+    async function loadUser() {
+      try {
+        const storedUser = localStorage.getItem('chat_user');
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+
+          // Fetch latest profile data to sync cross-platform changes
+          if (parsedUser.username) {
+            const res = await fetch(`/api/profile/${parsedUser.username}`);
+            if (res.ok) {
+              const latestData = await res.json();
+              const updatedUser = { ...parsedUser, ...latestData };
+              localStorage.setItem('chat_user', JSON.stringify(updatedUser));
+              setUser(updatedUser);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error synchronizing user session:', e);
       }
-    } catch (e) {
-      console.error('Error loading user from localStorage:', e);
     }
+    loadUser();
   }, []);
 
   const login = (userData) => {
@@ -33,8 +48,16 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUserProfile = (profileData) => {
+    setUser(prev => {
+      const updated = { ...prev, ...profileData };
+      localStorage.setItem('chat_user', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, updateUserProfile }}>
       {children}
     </AuthContext.Provider>
   );
