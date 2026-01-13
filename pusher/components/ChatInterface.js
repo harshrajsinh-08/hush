@@ -380,17 +380,26 @@ export default function ChatInterface() {
 
         // If it's a message sent by me, verify if we have a pending version of it
         if (msg.sender === user.username) {
-          // Find a pending message that looks like this one (same content/receiver/type)
-          const pendingIndex = prev.findIndex(m =>
-            m.isPending &&
-            m.receiver === msg.receiver &&
-            m.type === msg.type &&
-            m.content === msg.content // decrypted content should match original input
-          );
+          // Robust matching using tempId (passed from backend)
+          let pendingIndex = -1;
+
+          if (msg.tempId) {
+            pendingIndex = prev.findIndex(m => m._id === msg.tempId);
+          }
+
+          // Fallback to content matching (legacy/backup)
+          if (pendingIndex === -1) {
+            pendingIndex = prev.findIndex(m =>
+              m.isPending &&
+              m.receiver === msg.receiver &&
+              m.type === msg.type &&
+              m.content === msg.content
+            );
+          }
 
           if (pendingIndex !== -1) {
             const next = [...prev];
-            next[pendingIndex] = msg;
+            next[pendingIndex] = { ...msg }; // Replace with confirmed message
             return next;
           }
         }
@@ -675,7 +684,7 @@ export default function ChatInterface() {
   const fileInputRef = useRef(null);
 
   const compressImage = (file) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = (event) => {
@@ -685,8 +694,8 @@ export default function ChatInterface() {
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-          const MAX_WIDTH = 1200;
-          const MAX_HEIGHT = 1200;
+          const MAX_WIDTH = 1024; // Reduced for reliability on mobile
+          const MAX_HEIGHT = 1024;
 
           if (width > height) {
             if (width > MAX_WIDTH) {
@@ -705,10 +714,12 @@ export default function ChatInterface() {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Optimize: WebP format with 0.85 quality - High quality, smaller size than JPEG
-          resolve(canvas.toDataURL('image/webp', 0.85));
+          // Use JPEG for better mobile compatibility/speed
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
         };
+        img.onerror = (e) => reject(new Error('Failed to load image'));
       };
+      reader.onerror = (e) => reject(new Error('Failed to read file'));
     });
   };
 
@@ -716,16 +727,21 @@ export default function ChatInterface() {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Basic type check
+    if (!file.type.startsWith('image/')) {
+      showAlert('Please select an image file', 'Invalid File');
+      return;
+    }
+
     try {
       const base64 = await compressImage(file);
       setImageToUpload(base64);
     } catch (err) {
-      console.error('Image compression failed', err);
-      showAlert('Failed to process image');
+      console.error('Image processing failed', err);
+      showAlert('Failed to process image. It might be corrupt or too large.');
+    } finally {
+      e.target.value = null; // Reset input
     }
-
-    // Reset input
-    e.target.value = null;
   };
 
   const handleDeleteMessage = async (messageId) => {
@@ -803,7 +819,8 @@ export default function ChatInterface() {
           sender: replyingTo.sender,
           content: encryptedReplyContent,
           type: replyingTo.type
-        } : null
+        } : null,
+        tempId: tempId // Pass tempId to backend
       };
 
       // 4. Send Request via XHR for progress
@@ -949,7 +966,8 @@ export default function ChatInterface() {
             sender: currentReplyTo.sender,
             content: encryptedReplyContent,
             type: currentReplyTo.type
-          } : null
+          } : null,
+          tempId: tempId // Pass tempId to backend
         })
       });
 
@@ -1294,14 +1312,14 @@ export default function ChatInterface() {
                   // Delete after copy to ensure it doesn't stay
                   setNotifications(prev => prev.filter(x => x._id !== n._id));
                   fetch('/api/notifications', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: n._id }) });
-                }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-100)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-200)', color: 'var(--slate-800)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500' }}>
                   Copy
                 </button>
                 <button onClick={() => {
                   // Just delete/dismiss
                   setNotifications(prev => prev.filter(x => x._id !== n._id));
                   fetch('/api/notifications', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: n._id }) });
-                }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-100)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-200)', color: 'var(--slate-800)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500' }}>
                   Dismiss
                 </button>
                 <button onClick={() => {
@@ -1358,19 +1376,19 @@ export default function ChatInterface() {
             <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, lineHeight: 1, letterSpacing: '-0.02em', color: 'var(--primary)' }}>Hush</h2>
             <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Private Messenger</span>
           </div>
-          <button onClick={handleInvite} className="theme-toggle-btn" title="Invite a Friend" style={{ background: 'none', border: 'none', color: 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
+          <button onClick={handleInvite} className="theme-toggle-btn" title="Invite a Friend">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
           </button>
-          <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme" style={{ background: 'none', border: 'none', color: 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
+          <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme">
             {theme === 'light' ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
             ) : (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
             )}
           </button>
-          <button onClick={() => setShowNotifications(true)} className="theme-toggle-btn" title="Secure Inbox" style={{ position: 'relative', background: 'none', border: 'none', color: notifications.length > 0 ? 'var(--primary)' : 'var(--slate-400)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', transition: 'color 0.2s', borderRadius: '10px' }}>
+          <button onClick={() => setShowNotifications(true)} className="theme-toggle-btn" title="Secure Inbox" style={{ position: 'relative' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
-            {notifications.length > 0 && <span style={{ position: 'absolute', top: '4px', right: '4px', width: '8px', height: '8px', background: '#e11d48', borderRadius: '50%' }}></span>}
+            {notifications.length > 0 && <span style={{ position: 'absolute', top: '8px', right: '8px', width: '8px', height: '8px', background: '#e11d48', borderRadius: '50%' }}></span>}
           </button>
 
           <button onClick={logout} className="logout-btn" title="Logout">

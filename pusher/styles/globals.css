@@ -173,6 +173,26 @@ body {
   border-color: var(--slate-200);
 }
 
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--slate-400);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.theme-toggle-btn:hover {
+  background: var(--slate-100);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
 .sidebar.mobile-hidden {
   display: none;
 }
@@ -865,8 +885,8 @@ body {
 /* Reply System - Elegant Refinement */
 .reply-preview {
   padding: 0.85rem 2rem;
-  background: #fbfbfc;
-  border-top: 1px solid var(--slate-100);
+  background: var(--slate-50);
+  border-top: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   gap: 1.25rem;

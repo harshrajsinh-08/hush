@@ -8,25 +8,25 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     const { messageId } = req.body;
     try {
-        if (mongoose.connection.readyState === 0) {
-          await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-app');
-        }
+      if (mongoose.connection.readyState === 0) {
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-app');
+      }
 
-        // Session check for delete
-        const token = verifyToken(req);
-        if (!token) return res.status(401).json({ message: 'Unauthorized' });
+      // Session check for delete
+      const token = verifyToken(req);
+      if (!token) return res.status(401).json({ message: 'Unauthorized' });
 
-        const message = await Message.findById(messageId);
-        if (!message) return res.status(200).json({ success: true }); // Already gone
+      const message = await Message.findById(messageId);
+      if (!message) return res.status(200).json({ success: true }); // Already gone
 
-        if (message.sender !== token.username) {
-            return res.status(403).json({ message: 'Forbidden: Can only delete own messages' });
-        }
+      if (message.sender !== token.username) {
+        return res.status(403).json({ message: 'Forbidden: Can only delete own messages' });
+      }
 
-        await Message.findByIdAndDelete(messageId);
-        return res.status(200).json({ success: true });
+      await Message.findByIdAndDelete(messageId);
+      return res.status(200).json({ success: true });
     } catch (e) {
-        return res.status(500).json({ error: e.message });
+      return res.status(500).json({ error: e.message });
     }
   }
 
@@ -48,18 +48,18 @@ export default async function handler(req, res) {
     // 1. Session Authorization (JWT)
     const token = verifyToken(req);
     if (!token) {
-        return res.status(401).json({ message: 'Unauthorized: Session required' });
+      return res.status(401).json({ message: 'Unauthorized: Session required' });
     }
     if (token.username.toLowerCase() !== sender.toLowerCase()) {
-        return res.status(403).json({ message: 'Forbidden: Sender mismatch' });
+      return res.status(403).json({ message: 'Forbidden: Sender mismatch' });
     }
 
     // 2. Conversation Existence Verification
     const participants = [sender, receiver].sort();
     const conversation = await Conversation.findOne({ participants });
-    
+
     if (!conversation) {
-        return res.status(403).json({ message: 'Forbidden: Conversation not found' });
+      return res.status(403).json({ message: 'Forbidden: Conversation not found' });
     }
 
     const newMessage = new Message({
@@ -77,8 +77,13 @@ export default async function handler(req, res) {
 
     // Create lightweight payload for Pusher (exclude content for large files)
     const lightPayload = { ...savedMessage.toObject() };
+    // Pass tempId back to client for optimistic update matching
+    if (req.body.tempId) {
+      lightPayload.tempId = req.body.tempId;
+    }
+
     if (type === 'image' || type === 'video') {
-      delete lightPayload.content; 
+      delete lightPayload.content;
     }
 
     // Trigger Pusher events
