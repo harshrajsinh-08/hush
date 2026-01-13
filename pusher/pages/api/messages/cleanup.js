@@ -12,19 +12,32 @@ export default async function handler(req, res) {
     await dbConnect();
 
     try {
-        const { durationHours } = req.body;
-        if (!durationHours || durationHours <= 0) return res.status(200).json({ deleted: 0 });
+        const { durationHours, targetUser } = req.body;
 
-        const cutoff = new Date(Date.now() - (durationHours * 60 * 60 * 1000));
+        let query = {};
 
-        // Delete messages where this user is sender OR receiver and older than cutoff
-        const result = await Message.deleteMany({
-            $or: [
-                { sender: token.username },
-                { receiver: token.username }
-            ],
-            timestamp: { $lt: cutoff }
-        });
+        if (targetUser) {
+            // Explicit Clear Chat Request
+            query = {
+                $or: [
+                    { sender: token.username, receiver: targetUser },
+                    { sender: targetUser, receiver: token.username }
+                ]
+            };
+        } else {
+            // Scheduled Cleanup
+            if (!durationHours || durationHours <= 0) return res.status(200).json({ deleted: 0 });
+            const cutoff = new Date(Date.now() - (durationHours * 60 * 60 * 1000));
+            query = {
+                $or: [
+                    { sender: token.username },
+                    { receiver: token.username }
+                ],
+                timestamp: { $lt: cutoff }
+            };
+        }
+
+        const result = await Message.deleteMany(query);
 
         res.status(200).json({ deleted: result.deletedCount });
     } catch (e) {
