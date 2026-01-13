@@ -25,8 +25,28 @@ export default async function handler(req, res) {
     if (user) {
       // Check password
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
+
+      // Decoy Password Check
+      let isDecoy = false;
+      if (!isMatch && user.decoyPassword) {
+        if (password === user.decoyPassword) {
+          isDecoy = true;
+        }
+      }
+
+      if (!isMatch && !isDecoy) {
         return res.status(401).json({ message: 'Invalid password' });
+      }
+
+      if (isDecoy) {
+        // Return a GHOST session (random dummy data)
+        return res.status(200).json({
+          username: 'Ghost',
+          _id: 'ghost-' + Date.now(),
+          avatar: '',
+          status: 'Offline',
+          isGhost: true // Frontend can use this to disable networking
+        });
       }
     } else {
       // Check if Invite Code is valid
@@ -71,7 +91,8 @@ export default async function handler(req, res) {
       username: user.username,
       _id: user._id,
       avatar: user.avatar,
-      status: user.status
+      status: user.status,
+      autoDeleteDuration: user.autoDeleteDuration || 0
     });
   } catch (error) {
     console.error(error);

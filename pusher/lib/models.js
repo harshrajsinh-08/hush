@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  decoyPassword: { type: String }, // Panic password
+  autoDeleteDuration: { type: Number, default: 0 }, // Hours (0 = disabled)
   avatar: { type: String, default: '' },
   status: { type: String, default: 'Hey there! I am using Hush.' },
   createdAt: { type: Date, default: Date.now },

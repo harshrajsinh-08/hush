@@ -61,6 +61,23 @@ export default function ChatInterface() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // Security Settings
+  const [decoyPassword, setDecoyPassword] = useState('');
+  const [autoDeleteDuration, setAutoDeleteDuration] = useState(user?.autoDeleteDuration || 0);
+  const [isSavingSecurity, setIsSavingSecurity] = useState(false);
+  const [showSecuritySettings, setShowSecuritySettings] = useState(false);
+
+  // Cleanup on mount
+  useEffect(() => {
+    if (user && user.autoDeleteDuration > 0) {
+      fetch('/api/messages/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ durationHours: user.autoDeleteDuration })
+      }).catch(console.error);
+    }
+  }, [user]);
+
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
@@ -241,6 +258,8 @@ export default function ChatInterface() {
 
   useEffect(() => {
     if (!user?.username) return;
+    if (user.isGhost) return; // GHOST MODE: Do not connect to real services
+
     Pusher.logToConsole = false;
 
     pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
@@ -1165,6 +1184,33 @@ export default function ChatInterface() {
     }
   };
 
+  const handleSaveSecurity = async () => {
+    setIsSavingSecurity(true);
+    try {
+      const res = await fetch('/api/profile/security', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decoyPassword: decoyPassword,
+          autoDeleteDuration: autoDeleteDuration
+        })
+      });
+      if (res.ok) {
+        updateUserProfile({ autoDeleteDuration });
+        showAlert('Security settings updated', 'Secure', 'OK');
+        setDecoyPassword(''); // Clear field for security
+        setShowSecuritySettings(false);
+      } else {
+        showAlert('Failed to update security settings');
+      }
+    } catch (e) {
+      console.error(e);
+      showAlert('Error saving settings');
+    } finally {
+      setIsSavingSecurity(false);
+    }
+  };
+
   const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1345,6 +1391,23 @@ export default function ChatInterface() {
       </div>
     </div>
   );
+
+  // GHOST MODE RENDER
+  if (user?.isGhost) {
+    return (
+      <div className="app-layout">
+        <div className="welcome-screen">
+          <div className="avatar" style={{ background: 'var(--slate-100)', color: 'var(--slate-300)' }}>
+            {/* Empty Ghost Icon */}
+          </div>
+          <div className="empty-state">
+            <h3>Welcome</h3>
+            <p>Start a new conversation.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-layout">
@@ -1843,8 +1906,14 @@ export default function ChatInterface() {
         )}
       </main>
       {inviteModalData && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
-          <div style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}>
+        <div
+          onClick={() => setInviteModalData(null)}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}
+          >
             <div style={{ width: '56px', height: '56px', background: 'var(--primary)', borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem auto', boxShadow: '0 4px 6px -1px rgba(var(--primary-rgb), 0.3)' }}>
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
             </div>
@@ -1874,8 +1943,14 @@ export default function ChatInterface() {
       )}
 
       {showProfileModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
-          <div style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}>
+        <div
+          onClick={() => setShowProfileModal(false)}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)', maxHeight: '90vh', overflowY: 'auto' }}
+          >
             <h3 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Account Settings</h3>
 
             <div style={{ marginBottom: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -1911,7 +1986,7 @@ export default function ChatInterface() {
               <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--primary)' }}>{user?.username || 'User'}</div>
             </div>
 
-            <div style={{ textAlign: 'left', marginBottom: '2rem' }}>
+            <div style={{ textAlign: 'left', marginBottom: '1rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.75rem', letterSpacing: '0.05em' }}>Status Message</label>
               <input
                 type="text"
@@ -1920,6 +1995,56 @@ export default function ChatInterface() {
                 onChange={(e) => setStatus(e.target.value)}
                 style={{ width: '100%', padding: '0.875rem', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', transition: 'border-color 0.2s', fontSize: '1rem' }}
               />
+            </div>
+
+            <div style={{ marginBottom: '2rem', textAlign: 'left' }}>
+              <button
+                onClick={() => setShowSecuritySettings(!showSecuritySettings)}
+                style={{ width: '100%', padding: '0.8rem', background: 'var(--slate-100)', border: 'none', borderRadius: '12px', fontSize: '0.95rem', fontWeight: '600', color: 'var(--slate-700)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <span>Ghost Mode & Security</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
+              </button>
+
+              {showSecuritySettings && (
+                <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Decoy / Panic Password</label>
+                    <input
+                      type="text"
+                      placeholder="Set a fake password"
+                      value={decoyPassword}
+                      onChange={(e) => setDecoyPassword(e.target.value)}
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                    />
+                    <p style={{ fontSize: '0.7rem', color: 'var(--slate-500)', marginTop: '4px' }}>If entered on login, opens an empty ghost profile.</p>
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Auto-Delete Messages</label>
+                    <select
+                      value={autoDeleteDuration}
+                      onChange={(e) => setAutoDeleteDuration(Number(e.target.value))}
+                      style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                    >
+                      <option value={0}>Disabled</option>
+                      <option value={24}>Older than 24 hours</option>
+                      <option value={72}>Older than 3 days</option>
+                      <option value={168}>Older than 1 week</option>
+                    </select>
+                  </div>
+
+
+
+                  <button
+                    onClick={handleSaveSecurity}
+                    disabled={isSavingSecurity}
+                    style={{ width: '100%', padding: '0.6rem', background: 'var(--slate-800)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.9rem' }}
+                  >
+                    {isSavingSecurity ? 'Saving...' : 'Update Security Settings'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <button
