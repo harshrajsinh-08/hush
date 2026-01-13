@@ -577,6 +577,13 @@ export default function ChatInterface() {
   };
 
   const fetchUnread = async () => {
+    if (user?.isGhost) {
+      // Ghost mode: pretend no conversations exist
+      setUnreadCounts({});
+      setRecentContacts([]);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/conversations/unread?username=${user.username}`);
       const data = await res.json();
@@ -589,6 +596,8 @@ export default function ChatInterface() {
 
   useEffect(() => {
     fetchUnread();
+
+    if (user?.isGhost) return;
 
     // Fetch notifications
     fetch('/api/notifications')
@@ -1390,29 +1399,80 @@ export default function ChatInterface() {
         )}
       </div>
     </div>
+
   );
 
-  // GHOST MODE RENDER
-  if (user?.isGhost) {
-    return (
-      <div className="app-layout">
-        <div className="welcome-screen">
-          <div className="avatar" style={{ background: 'var(--slate-100)', color: 'var(--slate-300)' }}>
-            {/* Empty Ghost Icon */}
+  const renderContactProfileModal = () => (
+    <div
+      onClick={() => setShowContactProfileModal(false)}
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(8px)', animation: 'fadeIn 0.2s ease-out' }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-secondary)',
+          padding: '0',
+          borderRadius: '24px',
+          width: '90%',
+          maxWidth: '360px',
+          textAlign: 'center',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          border: '1px solid var(--border-color)',
+          position: 'relative',
+          overflow: 'hidden',
+          animation: 'scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+        }}
+      >
+        {/* Header Background Gradient */}
+        <div style={{ height: '120px', background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #4f46e5) 100%)', position: 'relative' }}>
+          <button
+            onClick={() => setShowContactProfileModal(false)}
+            style={{ position: 'absolute', top: '1rem', right: '1rem', width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.2)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(4px)' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+
+        {/* Profile Content */}
+        <div style={{ padding: '0 2rem 2.5rem 2rem', marginTop: '-60px' }}>
+          <div className="avatar" style={{ width: '120px', height: '120px', margin: '0 auto 1rem auto', fontSize: '3rem', background: 'var(--bg-secondary)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '40px', border: '6px solid var(--bg-secondary)', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+            {contactProfileData?.avatar ? (
+              <img src={contactProfileData.avatar} alt={contactProfileData.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              contactProfileData?.username?.charAt(0).toUpperCase() || '?'
+            )}
           </div>
-          <div className="empty-state">
-            <h3>Welcome</h3>
-            <p>Start a new conversation.</p>
+
+          <h2 style={{ fontSize: '1.75rem', fontWeight: '800', margin: '0 0 0.25rem 0', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{contactProfileData?.username}</h2>
+
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: onlineUsers.has(contactProfileData?.username) ? 'rgba(34, 197, 94, 0.1)' : 'var(--slate-100)', padding: '4px 12px', borderRadius: '20px', marginBottom: '1.5rem' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: onlineUsers.has(contactProfileData?.username) ? '#22c55e' : 'var(--slate-400)' }}></span>
+            <span style={{ fontSize: '0.85rem', fontWeight: '600', color: onlineUsers.has(contactProfileData?.username) ? '#16a34a' : 'var(--slate-500)' }}>
+              {onlineUsers.has(contactProfileData?.username) ? 'Online' : 'Offline'}
+            </span>
+          </div>
+
+          <div style={{ textAlign: 'left' }}>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--slate-400)', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>About</label>
+            <div style={{ background: 'var(--bg-primary)', padding: '1.25rem', borderRadius: '16px', border: '1px solid var(--border-color)', position: 'relative' }}>
+              <p style={{ color: 'var(--text-primary)', fontSize: '1.05rem', lineHeight: 1.6, margin: 0 }}>
+                {contactProfileData?.status || "Hey there! I am using Hush."}
+              </p>
+              <div style={{ position: 'absolute', top: '10px', right: '10px', opacity: 0.1 }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M14.017 21L14.017 18C14.017 16.8954 13.1216 16 12.017 16H9.01699C7.91243 16 7.01699 16.8954 7.01699 18L7.01699 21H2.01699V3H22.017V21H14.017Z" /></svg>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
     <div className="app-layout">
       {messageToDelete && renderDeleteModal()}
       {showNotifications && renderNotificationsModal()}
+      {showContactProfileModal && renderContactProfileModal()}
       {/* Sidebar */}
       <aside className={`sidebar ${showMobileChat ? 'mobile-hidden' : ''}`}>
         <header className="header" style={{ gap: '0.75rem', paddingLeft: '1.25rem' }}>
@@ -1552,13 +1612,25 @@ export default function ChatInterface() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
               </button>
               <div className="header-info"
-                onClick={() => {
-                  fetch(`/api/profile/${activeChat.username}`)
-                    .then(res => res.json())
+                onClick={(e) => {
+                  // Prevent profile modal if clicking buttons
+                  if (e.target.closest('button')) return;
+
+                  // Simple mock data use activeChat usually, but let's fetch fresh
+                  setContactProfileData({
+                    ...activeChat,
+                    status: activeChat.status || "Hey there! I am using Hush."
+                  });
+
+                  setShowContactProfileModal(true);
+
+                  // Fetch full profile in background to update status if needed
+                  fetch(`/api/users/profile?username=${activeChat.username}`)
+                    .then(res => res.ok ? res.json() : null)
                     .then(data => {
-                      setContactProfileData(data);
-                      setShowContactProfileModal(true);
-                    });
+                      if (data) setContactProfileData(data);
+                    })
+                    .catch(console.error);
                 }}
                 style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, paddingRight: '1rem', cursor: 'pointer' }}
               >
@@ -1905,218 +1977,237 @@ export default function ChatInterface() {
           </div>
         )}
       </main>
-      {inviteModalData && (
-        <div
-          onClick={() => setInviteModalData(null)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
-        >
+      {
+        inviteModalData && (
           <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}
+            onClick={() => setInviteModalData(null)}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
           >
-            <div style={{ width: '56px', height: '56px', background: 'var(--primary)', borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem auto', boxShadow: '0 4px 6px -1px rgba(var(--primary-rgb), 0.3)' }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
-            </div>
-            <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Invite a Friend</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.95rem', lineHeight: '1.5' }}>
-              Share this unique link. The invite code is valid for one use only.
-            </p>
-
-            <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-              {inviteModalData}
-            </div>
-
-            <button
-              onClick={() => copyToClipboard(inviteModalData)}
-              style={{ width: '100%', padding: '0.875rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', marginBottom: '0.75rem', fontSize: '1rem', transition: 'transform 0.1s' }}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}
             >
-              Copy Link
-            </button>
-            <button
-              onClick={() => setInviteModalData(null)}
-              style={{ width: '100%', padding: '0.875rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: '500' }}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showProfileModal && (
-        <div
-          onClick={() => setShowProfileModal(false)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)', maxHeight: '90vh', overflowY: 'auto' }}
-          >
-            <h3 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Account Settings</h3>
-
-            <div style={{ marginBottom: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
-                <div className="avatar" style={{ width: '100px', height: '100px', fontSize: '2.5rem', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '32px', overflow: 'hidden', border: '4px solid var(--bg-primary)', boxShadow: '0 8px 16px rgba(0,0,0,0.1)' }}>
-                  {avatar ? (
-                    <img
-                      src={avatar}
-                      alt="Profile"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        e.target.parentElement.innerHTML = user?.username?.charAt(0).toUpperCase() || '?';
-                      }}
-                    />
-                  ) : (
-                    user?.username?.charAt(0).toUpperCase() || '?'
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.onchange = handleAvatarChange;
-                    input.click();
-                  }}
-                  style={{ position: 'absolute', bottom: '-5px', right: '-5px', width: '32px', height: '32px', background: 'var(--primary)', color: 'white', border: '3px solid var(--bg-secondary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 8px rgba(0,0,0,0.2)' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14" /></svg>
-                </button>
+              <div style={{ width: '56px', height: '56px', background: 'var(--primary)', borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem auto', boxShadow: '0 4px 6px -1px rgba(var(--primary-rgb), 0.3)' }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
               </div>
-              <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--primary)' }}>{user?.username || 'User'}</div>
-            </div>
-
-            <div style={{ textAlign: 'left', marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.75rem', letterSpacing: '0.05em' }}>Status Message</label>
-              <input
-                type="text"
-                placeholder="Set your status..."
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                style={{ width: '100%', padding: '0.875rem', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', transition: 'border-color 0.2s', fontSize: '1rem' }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '2rem', textAlign: 'left' }}>
-              <button
-                onClick={() => setShowSecuritySettings(!showSecuritySettings)}
-                style={{ width: '100%', padding: '0.8rem', background: 'var(--slate-100)', border: 'none', borderRadius: '12px', fontSize: '0.95rem', fontWeight: '600', color: 'var(--slate-700)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-              >
-                <span>Ghost Mode & Security</span>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
-              </button>
-
-              {showSecuritySettings && (
-                <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                  <div style={{ marginBottom: '1rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Decoy / Panic Password</label>
-                    <input
-                      type="text"
-                      placeholder="Set a fake password"
-                      value={decoyPassword}
-                      onChange={(e) => setDecoyPassword(e.target.value)}
-                      style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
-                    />
-                    <p style={{ fontSize: '0.7rem', color: 'var(--slate-500)', marginTop: '4px' }}>If entered on login, opens an empty ghost profile.</p>
-                  </div>
-
-                  <div style={{ marginBottom: '1rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Auto-Delete Messages</label>
-                    <select
-                      value={autoDeleteDuration}
-                      onChange={(e) => setAutoDeleteDuration(Number(e.target.value))}
-                      style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
-                    >
-                      <option value={0}>Disabled</option>
-                      <option value={24}>Older than 24 hours</option>
-                      <option value={72}>Older than 3 days</option>
-                      <option value={168}>Older than 1 week</option>
-                    </select>
-                  </div>
-
-
-
-                  <button
-                    onClick={handleSaveSecurity}
-                    disabled={isSavingSecurity}
-                    style={{ width: '100%', padding: '0.6rem', background: 'var(--slate-800)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.9rem' }}
-                  >
-                    {isSavingSecurity ? 'Saving...' : 'Update Security Settings'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={handleSaveProfile}
-              disabled={isSavingProfile}
-              style={{ width: '100%', padding: '1rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '14px', fontWeight: '700', cursor: 'pointer', marginBottom: '2rem', fontSize: '1rem', boxShadow: '0 4px 12px rgba(var(--primary-rgb), 0.3)' }}
-            >
-              {isSavingProfile ? 'Saving Changes...' : 'Save Changes'}
-            </button>
-
-            <button
-              onClick={() => {
-                setShowProfileModal(false);
-                logout();
-              }}
-              style={{ width: '100%', padding: '1rem', background: 'var(--slate-200)', color: 'var(--slate-800)', border: 'none', borderRadius: '14px', fontWeight: '600', cursor: 'pointer', marginBottom: '1.5rem', fontSize: '1rem', transition: 'background 0.2s' }}
-            >
-              Log Out
-            </button>
-
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
-              <p style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '0.5rem' }}>Danger Zone</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                Permanently delete your account and all messages. This cannot be undone.
+              <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Invite a Friend</h3>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.95rem', lineHeight: '1.5' }}>
+                Share this unique link. The invite code is valid for one use only.
               </p>
 
-              <input
-                type="password"
-                placeholder="Enter password to confirm"
-                value={deleteConfirmation}
-                onChange={(e) => setDeleteConfirmation(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
-                  marginBottom: '1rem',
-                  fontSize: '0.9rem'
-                }}
-              />
+              <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
+                {inviteModalData}
+              </div>
 
               <button
-                onClick={handleDeleteAccount}
-                disabled={!deleteConfirmation || isDeleting}
-                style={{
-                  width: '100%',
-                  padding: '0.875rem',
-                  background: '#ef4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '10px',
-                  fontWeight: '600',
-                  cursor: (!deleteConfirmation || isDeleting) ? 'not-allowed' : 'pointer',
-                  marginBottom: '0.75rem',
-                  opacity: (!deleteConfirmation || isDeleting) ? 0.6 : 1
-                }}
+                onClick={() => copyToClipboard(inviteModalData)}
+                style={{ width: '100%', padding: '0.875rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', marginBottom: '0.75rem', fontSize: '1rem', transition: 'transform 0.1s' }}
               >
-                {isDeleting ? 'Deleting...' : 'Delete Account'}
+                Copy Link
+              </button>
+              <button
+                onClick={() => setInviteModalData(null)}
+                style={{ width: '100%', padding: '0.875rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: '500' }}
+              >
+                Close
               </button>
             </div>
-
-            <button
-              onClick={() => { setShowProfileModal(false); setDeleteConfirmation(''); }}
-              style={{ width: '100%', padding: '0.75rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.95rem' }}
-            >
-              Cancel
-            </button>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+
+      {
+        showProfileModal && (
+          <div
+            onClick={() => setShowProfileModal(false)}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)', maxHeight: '90vh', overflowY: 'auto' }}
+            >
+              <h3 style={{ margin: '0 0 1.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Account Settings</h3>
+
+              <div style={{ marginBottom: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
+                  <div className="avatar" style={{ width: '100px', height: '100px', fontSize: '2.5rem', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '32px', overflow: 'hidden', border: '4px solid var(--bg-primary)', boxShadow: '0 8px 16px rgba(0,0,0,0.1)' }}>
+                    {avatar ? (
+                      <img
+                        src={avatar}
+                        alt="Profile"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.parentElement.innerHTML = user?.username?.charAt(0).toUpperCase() || '?';
+                        }}
+                      />
+                    ) : (
+                      user?.username?.charAt(0).toUpperCase() || '?'
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'image/*';
+                      input.onchange = handleAvatarChange;
+                      input.click();
+                    }}
+                    style={{ position: 'absolute', bottom: '-5px', right: '-5px', width: '32px', height: '32px', background: 'var(--primary)', color: 'white', border: '3px solid var(--bg-secondary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 8px rgba(0,0,0,0.2)' }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14" /></svg>
+                  </button>
+                </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--primary)' }}>{user?.username || 'User'}</div>
+              </div>
+
+              <div style={{ textAlign: 'left', marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.75rem', letterSpacing: '0.05em' }}>Status Message</label>
+                <input
+                  type="text"
+                  placeholder="Set your status..."
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  style={{ width: '100%', padding: '0.875rem', borderRadius: '12px', border: '2px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', transition: 'border-color 0.2s', fontSize: '1rem' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '2rem', textAlign: 'left' }}>
+                <button
+                  onClick={() => setShowSecuritySettings(!showSecuritySettings)}
+                  style={{ width: '100%', padding: '0.8rem', background: 'var(--slate-100)', border: 'none', borderRadius: '12px', fontSize: '0.95rem', fontWeight: '600', color: 'var(--slate-700)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <span>Ghost Mode & Security</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
+                </button>
+
+                {showSecuritySettings && (
+                  <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Decoy / Panic Password</label>
+                      <input
+                        type="text"
+                        placeholder="Set a fake password"
+                        value={decoyPassword}
+                        onChange={(e) => setDecoyPassword(e.target.value)}
+                        style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', border: '1px solid var(--border-color)', fontSize: '0.95rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                      />
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>If entered on login, opens an empty ghost profile.</p>
+                    </div>
+
+                    <div style={{ marginBottom: '1rem', position: 'relative' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Auto-Delete Messages</label>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={autoDeleteDuration}
+                          onChange={(e) => setAutoDeleteDuration(Number(e.target.value))}
+                          style={{
+                            width: '100%',
+                            padding: '0.8rem',
+                            paddingRight: '2.5rem',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border-color)',
+                            fontSize: '0.95rem',
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-primary)',
+                            appearance: 'none',
+                            WebkitAppearance: 'none',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value={0}>Disabled</option>
+                          <option value={24}>Older than 24 hours</option>
+                          <option value={72}>Older than 3 days</option>
+                          <option value={168}>Older than 1 week</option>
+                        </select>
+                        <div style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--slate-400)' }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleSaveSecurity}
+                      disabled={isSavingSecurity}
+                      style={{ width: '100%', padding: '0.8rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer', fontSize: '0.95rem', boxShadow: '0 4px 10px rgba(var(--primary-rgb), 0.2)' }}
+                    >
+                      {isSavingSecurity ? 'Saving...' : 'Update Security Settings'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleSaveProfile}
+                disabled={isSavingProfile}
+                style={{ width: '100%', padding: '1rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '14px', fontWeight: '700', cursor: 'pointer', marginBottom: '2rem', fontSize: '1rem', boxShadow: '0 4px 12px rgba(var(--primary-rgb), 0.3)' }}
+              >
+                {isSavingProfile ? 'Saving Changes...' : 'Save Changes'}
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowProfileModal(false);
+                  logout();
+                }}
+                style={{ width: '100%', padding: '1rem', background: 'var(--slate-200)', color: 'var(--slate-800)', border: 'none', borderRadius: '14px', fontWeight: '600', cursor: 'pointer', marginBottom: '1.5rem', fontSize: '1rem', transition: 'background 0.2s' }}
+              >
+                Log Out
+              </button>
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+                <p style={{ color: '#ef4444', fontWeight: 'bold', marginBottom: '0.5rem' }}>Danger Zone</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                  Permanently delete your account and all messages. This cannot be undone.
+                </p>
+
+                <input
+                  type="password"
+                  placeholder="Enter password to confirm"
+                  value={deleteConfirmation}
+                  onChange={(e) => setDeleteConfirmation(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    marginBottom: '1rem',
+                    fontSize: '0.9rem'
+                  }}
+                />
+
+                <button
+                  onClick={handleDeleteAccount}
+                  disabled={!deleteConfirmation || isDeleting}
+                  style={{
+                    width: '100%',
+                    padding: '0.875rem',
+                    background: '#ef4444',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontWeight: '600',
+                    cursor: (!deleteConfirmation || isDeleting) ? 'not-allowed' : 'pointer',
+                    marginBottom: '0.75rem',
+                    opacity: (!deleteConfirmation || isDeleting) ? 0.6 : 1
+                  }}
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Account'}
+                </button>
+              </div>
+
+              <button
+                onClick={() => { setShowProfileModal(false); setDeleteConfirmation(''); }}
+                style={{ width: '100%', padding: '0.75rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.95rem' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 }

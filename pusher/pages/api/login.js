@@ -29,19 +29,23 @@ export default async function handler(req, res) {
       // Decoy Password Check
       let isDecoy = false;
       if (!isMatch && user.decoyPassword) {
-        if (password === user.decoyPassword) {
+        console.log(`[Login Debug] Checking Decoy: Input='${password.trim()}', Stored='${user.decoyPassword}'`);
+        if (password.trim() === user.decoyPassword) {
           isDecoy = true;
+        } else {
+          console.log('[Login Debug] Decoy Mismatch');
         }
       }
 
       if (!isMatch && !isDecoy) {
+        console.log('[Login Debug] Auth Failed - No Match');
         return res.status(401).json({ message: 'Invalid password' });
       }
 
       if (isDecoy) {
         // Return a GHOST session (random dummy data)
         return res.status(200).json({
-          username: 'Ghost',
+          username: user.username, // Use REAL username for credibility
           _id: 'ghost-' + Date.now(),
           avatar: '',
           status: 'Offline',

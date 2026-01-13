@@ -18,7 +18,7 @@ export default async function handler(req, res) {
                 // Clear it if empty
                 updates.decoyPassword = '';
             } else {
-                updates.decoyPassword = decoyPassword;
+                updates.decoyPassword = decoyPassword.trim();
             }
         }
 
@@ -26,6 +26,7 @@ export default async function handler(req, res) {
             updates.autoDeleteDuration = parseInt(autoDeleteDuration);
         }
 
+        console.log('[Security API] Update Request:', updates, 'for user:', token.username);
         await User.findOneAndUpdate({ username: token.username }, updates);
         res.status(200).json({ success: true, message: 'Security settings updated' });
     } catch (e) {
