@@ -279,7 +279,9 @@ export default function ChatInterface() {
     });
 
     userChannel.bind('messages_read', ({ receiver }) => {
-      if (receiver === user.username) {
+      // The receiver in the payload is the one who read the messages.
+      // If that person is who we are currently chatting with, update our own sent messages to 'read'.
+      if (receiver === activeChat?.username) {
         setMessages(prev => prev.map(m =>
           (m.sender === user.username && m.receiver === activeChat?.username) ? { ...m, read: true } : m
         ));
@@ -373,7 +375,26 @@ export default function ChatInterface() {
       }
 
       setMessages((prev) => {
+        // If message already exists with this ID, don't add it again
         if (prev.some(m => m._id === msg._id)) return prev;
+
+        // If it's a message sent by me, verify if we have a pending version of it
+        if (msg.sender === user.username) {
+          // Find a pending message that looks like this one (same content/receiver/type)
+          const pendingIndex = prev.findIndex(m =>
+            m.isPending &&
+            m.receiver === msg.receiver &&
+            m.type === msg.type &&
+            m.content === msg.content // decrypted content should match original input
+          );
+
+          if (pendingIndex !== -1) {
+            const next = [...prev];
+            next[pendingIndex] = msg;
+            return next;
+          }
+        }
+
         return [...prev, msg];
       });
     });
