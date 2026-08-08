@@ -481,7 +481,7 @@ export default function ChatInterface() {
       }
     } catch (err) {
       setIsCheckingStatus(false);
-      showAlert('Failed to check conversation status');
+      showAlert(`Unable to verify conversation status: ${err.message || 'Network error'}. Please try again.`, 'Status Check Error');
     }
   };
 
@@ -646,10 +646,10 @@ export default function ChatInterface() {
         setPasswordInput('');
         fetchHistory(activeChat.username, passwordInput);
       } else {
-        showAlert(data.message || 'Verification failed');
+        showAlert(data.message || 'Incorrect room password. Please try again.', 'Room Access Denied');
       }
     } catch (err) {
-      showAlert('Error during verification');
+      showAlert(`Unable to verify room password: ${err.message || 'Network error'}. Please check your connection.`, 'Verification Error');
     } finally {
       setIsVerifying(false);
     }
@@ -708,7 +708,7 @@ export default function ChatInterface() {
       setImageToUpload(base64);
     } catch (err) {
       console.error('Image processing failed', err);
-      showAlert('Failed to process image. It might be corrupt or too large.');
+      showAlert(`Unable to process image: ${err.message || 'File may be unsupported, corrupted, or too large.'}`, 'Image Error');
     } finally {
       e.target.value = null; 
     }
@@ -726,8 +726,7 @@ export default function ChatInterface() {
       });
     } catch (err) {
       console.error('Failed to delete message:', err);
-      showAlert('Failed to delete message');
-      
+      showAlert(`Unable to delete message: ${err.message || 'Network or server error'}.`, 'Deletion Error');
     }
   };
 
@@ -827,7 +826,7 @@ export default function ChatInterface() {
       setMessages(prev => prev.map(m => m._id === tempId ? savedMsg : m));
     } catch (err) {
       console.error('Failed to send image:', err);
-      showAlert('Failed to send image');
+      showAlert(`Unable to send image: ${err.message || 'Network error'}. Please try again.`, 'Send Image Error');
       setMessages(prev => prev.filter(m => m._id !== tempId));
     } finally {
       setIsSending(false);
@@ -937,7 +936,7 @@ export default function ChatInterface() {
       setMessages(prev => prev.map(m => m._id === tempId ? savedMsg : m));
     } catch (err) {
       console.error('Failed to send message:', err);
-      showAlert('Failed to send message');
+      showAlert(`Unable to send message: ${err.message || 'Network connection failed'}.`, 'Send Message Error');
       setMessages(prev => prev.filter(m => m._id !== tempId));
       setMessage(currentMsgContent); 
     }
@@ -982,12 +981,13 @@ export default function ChatInterface() {
           setTimeout(() => btn.innerHTML = original, 2000);
         }
       } else {
-        const data = await res.json();
-        showAlert(data.message || 'Failed to share password');
+        let data;
+        try { data = await res.json(); } catch (err) {}
+        showAlert(data?.message || `Failed to share password (HTTP ${res.status}).`, 'Share Password Error');
       }
     } catch (e) {
       console.error("Failed to share password", e);
-      showAlert('Error sharing password');
+      showAlert(`Unable to share password: ${e.message || 'Network error'}.`, 'Share Password Error');
     }
   };
 
@@ -1070,11 +1070,11 @@ export default function ChatInterface() {
       if (res.ok) {
         logout();
       } else {
-        showAlert(data.message);
+        showAlert(data?.message || `Failed to delete account (HTTP ${res.status}).`, 'Account Deletion Error');
       }
     } catch (e) {
       console.error("Delete failed", e);
-      showAlert("Server error");
+      showAlert(`Account deletion error: ${e.message || 'Server connection failed'}.`, 'Account Deletion Error');
     } finally {
       setIsDeleting(false);
     }
@@ -1097,12 +1097,13 @@ export default function ChatInterface() {
         updateUserProfile({ avatar, status });
         showAlert('Profile updated successfully!', 'Success', 'OK');
       } else {
-        const data = await res.json();
-        showAlert(data.message || 'Failed to update profile', 'Error', 'Try Again');
+        let data;
+        try { data = await res.json(); } catch (err) {}
+        showAlert(data?.message || `Failed to update profile (HTTP ${res.status}).`, 'Profile Update Failed', 'Try Again');
       }
     } catch (e) {
       console.error("Profile update error", e);
-      showAlert("Server error during update", "Error", "Try Again");
+      showAlert(`Unable to update profile: ${e.message || 'Network error'}.`, 'Profile Update Failed', 'Try Again');
     } finally {
       setIsSavingProfile(false);
     }
@@ -1125,11 +1126,13 @@ export default function ChatInterface() {
         setDecoyPassword(''); 
         setShowSecuritySettings(false);
       } else {
-        showAlert('Failed to update security settings');
+        let data;
+        try { data = await res.json(); } catch (err) {}
+        showAlert(data?.message || `Failed to update security settings (HTTP ${res.status}).`, 'Security Update Error');
       }
     } catch (e) {
       console.error(e);
-      showAlert('Error saving settings');
+      showAlert(`Unable to save security settings: ${e.message || 'Network error'}.`, 'Security Update Error');
     } finally {
       setIsSavingSecurity(false);
     }
@@ -1143,7 +1146,7 @@ export default function ChatInterface() {
       setAvatar(base64);
     } catch (err) {
       console.error('Avatar processing failed', err);
-      showAlert('Failed to process avatar');
+      showAlert(`Unable to process avatar: ${err.message || 'Invalid image file'}.`, 'Avatar Processing Error');
     }
     e.target.value = null; // reset
   };
@@ -1376,7 +1379,7 @@ export default function ChatInterface() {
       showAlert('Chat history cleared');
     } catch (err) {
       console.error(err);
-      showAlert('Failed to clear chat');
+      showAlert(`Unable to clear chat history: ${err.message || 'Network error'}.`, 'Clear Chat Error');
     }
   };
 

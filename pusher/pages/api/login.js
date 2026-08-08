@@ -6,17 +6,37 @@ import { serialize } from 'cookie';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    return res.status(405).json({ message: 'Method not allowed. Only POST requests are accepted.' });
   }
 
-  await dbConnect();
-
-  const { username, password, isSignUp } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ message: 'Username and password are required' });
+  try {
+    await dbConnect();
+  } catch (dbErr) {
+    console.error('Database connection failure:', dbErr);
+    return res.status(503).json({ message: 'Database connection failed. Please ensure the database server is running.' });
   }
 
-  const normalizedUsername = username.trim().toLowerCase();
+  const { username, password, isSignUp } = req.body || {};
+  const rawUsername = (username || '').trim();
+  const rawPassword = password || '';
+
+  if (!rawUsername || !rawPassword) {
+    return res.status(400).json({ message: 'Both username and password are required.' });
+  }
+
+  const normalizedUsername = rawUsername.toLowerCase();
+
+  if (isSignUp) {
+    if (rawUsername.length < 3) {
+      return res.status(400).json({ message: 'Username must be at least 3 characters long.' });
+    }
+    if (/\s/.test(rawUsername)) {
+      return res.status(400).json({ message: 'Username cannot contain spaces.' });
+    }
+    if (rawPassword.length < 4) {
+      return res.status(400).json({ message: 'Password must be at least 4 characters long.' });
+    }
+  }
 
   try {
     // Find user by normalized username
@@ -25,29 +45,29 @@ export default async function handler(req, res) {
     if (isSignUp) {
       // Explicit Create Account mode: ensure username is unique and not already taken
       if (user) {
-        return res.status(409).json({ message: 'Username is already taken. Please choose a different username.' });
+        return res.status(409).json({ message: `The username "${rawUsername}" is already registered. Please log in or choose a different username.` });
       }
       // Create new user
-      user = await User.create({ username: normalizedUsername, password });
+      user = await User.create({ username: normalizedUsername, password: rawPassword });
     } else {
       // Log In mode
       if (!user) {
-        return res.status(404).json({ message: 'User not found. Please check your username or create an account.' });
+        return res.status(404).json({ message: `No account found for "${rawUsername}". Please check the username or switch to Create Account.` });
       }
 
       // Check password
-      const isMatch = await bcrypt.compare(password, user.password);
+      const isMatch = await bcrypt.compare(rawPassword, user.password);
 
       // Decoy Password Check
       let isDecoy = false;
       if (!isMatch && user.decoyPassword) {
-        if (password.trim() === user.decoyPassword) {
+        if (rawPassword.trim() === user.decoyPassword) {
           isDecoy = true;
         }
       }
 
       if (!isMatch && !isDecoy) {
-        return res.status(401).json({ message: 'Invalid password' });
+        return res.status(401).json({ message: 'Incorrect password. Please check your password and try again.' });
       }
 
       if (isDecoy) {
@@ -65,7 +85,7 @@ export default async function handler(req, res) {
     // Generate JWT
     const token = jwt.sign(
       { username: user.username, userId: user._id },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'fallback-secret-for-dev',
       { expiresIn: '7d' }
     );
 
@@ -90,8 +110,8 @@ export default async function handler(req, res) {
     console.error('Login/Signup error:', error);
     // Catch MongoDB duplicate key constraint (E11000)
     if (error.code === 11000) {
-      return res.status(409).json({ message: 'Username is already taken. Please choose a different username.' });
+      return res.status(409).json({ message: `The username "${rawUsername}" is already taken. Please choose a different username.` });
     }
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: `Server error: ${error.message || 'Internal error'}` });
   }
 }

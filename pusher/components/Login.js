@@ -14,9 +14,34 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) {
-      showAlert('Please enter both username and password.');
+    const trimmedUsername = username.trim();
+
+    if (!trimmedUsername && !password) {
+      showAlert('Please enter both a username and password.', 'Credentials Required');
       return;
+    }
+    if (!trimmedUsername) {
+      showAlert('Please enter your username.', 'Username Required');
+      return;
+    }
+    if (!password) {
+      showAlert('Please enter your password.', 'Password Required');
+      return;
+    }
+
+    if (mode === 'signup') {
+      if (trimmedUsername.length < 3) {
+        showAlert('Username must be at least 3 characters long.', 'Registration Details Required');
+        return;
+      }
+      if (/\s/.test(trimmedUsername)) {
+        showAlert('Username cannot contain spaces.', 'Registration Details Required');
+        return;
+      }
+      if (password.length < 4) {
+        showAlert('Password must be at least 4 characters long.', 'Registration Details Required');
+        return;
+      }
     }
 
     setLoading(true);
@@ -25,20 +50,48 @@ export default function Login() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: username.trim(),
+          username: trimmedUsername,
           password,
           isSignUp: mode === 'signup'
         }),
       });
-      const data = await res.json();
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        const title = mode === 'signup' ? 'Registration Error' : 'Login Error';
+        showAlert(
+          `The server returned an invalid response (${res.status} ${res.statusText || ''}). Please try again later.`,
+          title
+        );
+        return;
+      }
+
       if (res.ok) {
         login(data);
       } else {
-        showAlert(data.message || (mode === 'signup' ? 'Registration failed' : 'Login failed'));
+        const alertTitle = mode === 'signup' ? 'Registration Failed' : 'Login Failed';
+        const problemMessage = data.message || data.error || (
+          res.status === 409
+            ? 'That username is already taken. Please choose a different username or log in.'
+            : res.status === 404
+            ? 'Account not found. Please verify your username or create a new account.'
+            : res.status === 401
+            ? 'Incorrect password. Please verify your password and try again.'
+            : res.status === 400
+            ? 'Invalid username or password format. Please check your input.'
+            : `Request failed with status code ${res.status}.`
+        );
+        showAlert(problemMessage, alertTitle);
       }
     } catch (err) {
-      console.error(err);
-      showAlert(mode === 'signup' ? 'Registration failed' : 'Login failed');
+      console.error('Submit error:', err);
+      const alertTitle = mode === 'signup' ? 'Registration Connection Error' : 'Login Connection Error';
+      showAlert(
+        `Unable to reach the server (${err.message || 'Network error'}). Please check your connection and try again.`,
+        alertTitle
+      );
     } finally {
       setLoading(false);
     }
