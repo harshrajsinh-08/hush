@@ -11,15 +11,15 @@ let presenceChannel;
 export default function ChatInterface() {
   const { user, logout } = useAuth();
   const { showAlert } = useAlert();
-  const [activeChat, setActiveChat] = useState(null); // { username: string }
+  const [activeChat, setActiveChat] = useState(null); 
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState([]); // Array of { sender, receiver, content, timestamp }
+  const [messages, setMessages] = useState([]); 
   const [searchResults, setSearchResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
-  const [promptAction, setPromptAction] = useState('setup'); // 'setup' or 'verify'
+  const [promptAction, setPromptAction] = useState('setup'); 
   const [passwordInput, setPasswordInput] = useState('');
-  const [verifiedPasswords, setVerifiedPasswords] = useState({}); // { username: password }
+  const [verifiedPasswords, setVerifiedPasswords] = useState({}); 
   const [isVerifying, setIsVerifying] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
@@ -33,9 +33,9 @@ export default function ChatInterface() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [unreadCounts, setUnreadCounts] = useState({}); // { username: count }
-  const [recentContacts, setRecentContacts] = useState([]); // Array of { username, unreadCount, lastTimestamp }
-  const [replyingTo, setReplyingTo] = useState(null); // { _id, sender, content, type }
+  const [unreadCounts, setUnreadCounts] = useState({}); 
+  const [recentContacts, setRecentContacts] = useState([]); 
+  const [replyingTo, setReplyingTo] = useState(null); 
 
   const [theme, setTheme] = useState('light');
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
@@ -45,7 +45,6 @@ export default function ChatInterface() {
   const [avatar, setAvatar] = useState(user?.avatar || '');
   const [status, setStatus] = useState(user?.status || '');
 
-  // Sync state when user object updates from AuthContext (e.g. cross-platform sync)
   useEffect(() => {
     if (user) {
       setAvatar(user.avatar || '');
@@ -57,17 +56,14 @@ export default function ChatInterface() {
   const [showContactProfileModal, setShowContactProfileModal] = useState(false);
   const [contactProfileData, setContactProfileData] = useState(null);
 
-  // Notifications
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // Security Settings
   const [decoyPassword, setDecoyPassword] = useState('');
   const [autoDeleteDuration, setAutoDeleteDuration] = useState(user?.autoDeleteDuration || 0);
   const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [showSecuritySettings, setShowSecuritySettings] = useState(false);
 
-  // Cleanup on mount
   useEffect(() => {
     if (user && user.autoDeleteDuration > 0) {
       fetch('/api/messages/cleanup', {
@@ -82,10 +78,9 @@ export default function ChatInterface() {
   const [isSending, setIsSending] = useState(false);
 
   const messagesEndRef = useRef(null);
-  const messageRefs = useRef({}); // To store refs for each message to allow scrolling to them
+  const messageRefs = useRef({}); 
   const textareaRef = useRef(null);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'inherit';
@@ -94,7 +89,6 @@ export default function ChatInterface() {
     }
   }, [message]);
 
-  // --- CRYPTO WORKER MANAGEMENT ---
   const workerRef = useRef(null);
   const workerCallbacks = useRef({});
   const requestIdRef = useRef(0);
@@ -140,9 +134,7 @@ export default function ChatInterface() {
       return '';
     }
   };
-  // ---------------------------------
 
-  // Ref to access latest passwords inside Pusher callbacks without re-subscribing
   const verifiedPasswordsRef = useRef(verifiedPasswords);
   const activeChatRef = useRef(activeChat);
 
@@ -153,7 +145,6 @@ export default function ChatInterface() {
   useEffect(() => {
     verifiedPasswordsRef.current = verifiedPasswords;
 
-    // If we just verified a password for the currently active chat, re-decrypt existing messages
     if (activeChat && verifiedPasswords[activeChat.username]) {
       const pwd = verifiedPasswords[activeChat.username];
       const targetUser = activeChat.username;
@@ -162,7 +153,6 @@ export default function ChatInterface() {
         const currentMessages = [...messages];
         let hasChanges = false;
 
-        // Process in chunks to avoid blocking
         const chunkSize = 10;
         for (let i = 0; i < currentMessages.length; i += chunkSize) {
           const chunk = currentMessages.slice(i, i + chunkSize);
@@ -189,7 +179,6 @@ export default function ChatInterface() {
           }
 
           if (chunkModified) {
-            // Check if user still in the same chat
             if (activeChatRef.current?.username !== targetUser) return;
 
             setMessages(prev => {
@@ -198,8 +187,6 @@ export default function ChatInterface() {
               return next;
             });
           }
-
-          // Yield
           await new Promise(resolve => setTimeout(resolve, 0));
         }
       };
@@ -218,7 +205,7 @@ export default function ChatInterface() {
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      // FORCE UNREGISTER to fix stale cache issues on mobile
+
       navigator.serviceWorker.getRegistrations().then(function (registrations) {
         for (let registration of registrations) {
           registration.unregister()
@@ -228,7 +215,6 @@ export default function ChatInterface() {
     }
   }, []);
 
-  // Theme management
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
@@ -242,7 +228,6 @@ export default function ChatInterface() {
     document.documentElement.setAttribute('data-theme', newTheme);
   };
 
-  // Synchronize status bar theme with app theme
   useEffect(() => {
     const themeColorMeta = document.querySelector('meta[name="theme-color"]');
     const appleStatusBarStyleMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
@@ -258,7 +243,7 @@ export default function ChatInterface() {
 
   useEffect(() => {
     if (!user?.username) return;
-    if (user.isGhost) return; // GHOST MODE: Do not connect to real services
+    if (user.isGhost) return; 
 
     Pusher.logToConsole = false;
 
@@ -298,8 +283,6 @@ export default function ChatInterface() {
     });
 
     userChannel.bind('messages_read', ({ receiver }) => {
-      // The receiver in the payload is the one who read the messages.
-      // If that person is who we are currently chatting with, update our own sent messages to 'read'.
       if (receiver === activeChat?.username) {
         setMessages(prev => prev.map(m =>
           (m.sender === user.username && m.receiver === activeChat?.username) ? { ...m, read: true } : m
@@ -313,9 +296,7 @@ export default function ChatInterface() {
 
     userChannel.bind('message_deleted', ({ messageId }) => {
       setMessages(prev => prev.filter(m => {
-        // If it's the message being deleted
         if (m._id === messageId) {
-          // Keep it if it is a revealed OTV message (so user can finish reading)
           if (m.type === 'otv' && m.isRevealed && !m.isExpired) {
             return true;
           }
@@ -328,8 +309,6 @@ export default function ChatInterface() {
     userChannel.bind('receive_message', async (msg) => {
       const otherUser = msg.sender === user.username ? msg.receiver : msg.sender;
       const pwd = verifiedPasswordsRef.current[otherUser];
-
-      // If content is missing (large file), fetch it
       if ((msg.type === 'image' || msg.type === 'video') && !msg.content) {
         try {
           const res = await fetch(`/api/messages?user1=${user.username}&user2=${otherUser}&password=${pwd}&messageId=${msg._id}`);
@@ -353,8 +332,6 @@ export default function ChatInterface() {
         }
       }
       setMessages((prev) => [...prev, msg]);
-
-      // If we are in the chat, mark as read
       if (activeChat?.username === msg.sender) {
         fetch('/api/pusher/mark_as_read', {
           method: 'POST',
@@ -362,13 +339,11 @@ export default function ChatInterface() {
           body: JSON.stringify({ sender: msg.sender, receiver: user.username })
         });
       } else {
-        // Increment unread count for the sender
         setUnreadCounts(prev => ({
           ...prev,
           [msg.sender]: (prev[msg.sender] || 0) + 1
         }));
-        // Update recent contacts list to move sender to top
-        fetchUnread(); // Refresh contacts list to ensure order
+        fetchUnread(); 
       }
     });
 
@@ -394,19 +369,13 @@ export default function ChatInterface() {
       }
 
       setMessages((prev) => {
-        // If message already exists with this ID, don't add it again
         if (prev.some(m => m._id === msg._id)) return prev;
-
-        // If it's a message sent by me, verify if we have a pending version of it
         if (msg.sender === user.username) {
-          // Robust matching using tempId (passed from backend)
           let pendingIndex = -1;
 
           if (msg.tempId) {
             pendingIndex = prev.findIndex(m => m._id === msg.tempId);
           }
-
-          // Fallback to content matching (legacy/backup)
           if (pendingIndex === -1) {
             pendingIndex = prev.findIndex(m =>
               m.isPending &&
@@ -418,7 +387,7 @@ export default function ChatInterface() {
 
           if (pendingIndex !== -1) {
             const next = [...prev];
-            next[pendingIndex] = { ...msg }; // Replace with confirmed message
+            next[pendingIndex] = { ...msg }; 
             return next;
           }
         }
@@ -428,10 +397,8 @@ export default function ChatInterface() {
     });
 
 
-    // Notifications listener
     userChannel.bind('new_notification', (data) => {
       setNotifications(prev => [data.notification, ...prev]);
-      // Also play a subtle sound if desired
     });
 
     return () => {
@@ -443,7 +410,6 @@ export default function ChatInterface() {
     };
   }, [user?.username, activeChat?.username]);
 
-  // Debounced Search
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       if (searchQuery.trim().length > 0) {
@@ -485,7 +451,6 @@ export default function ChatInterface() {
     setHasMore(true);
     setShowPasswordPrompt(false);
 
-    // Update unread count locally and notify server
     setUnreadCounts(prev => ({ ...prev, [otherUser.username]: 0 }));
     fetch('/api/pusher/mark_as_read', {
       method: 'POST',
@@ -493,7 +458,6 @@ export default function ChatInterface() {
       body: JSON.stringify({ sender: otherUser.username, receiver: user.username })
     });
 
-    // Check if password exists
     try {
       const statusRes = await fetch(`/api/conversations/status?user1=${user.username}&user2=${otherUser.username}`);
       const status = await statusRes.json();
@@ -503,18 +467,15 @@ export default function ChatInterface() {
       if (!status.exists) {
         setPromptAction('setup');
         setShowPasswordPrompt(true);
-        // Load history anyway to see automated OTV messages
         fetchHistory(otherUser.username, null);
         return;
       }
 
-      // Check if already verified in this session OR we have an initialPassword passed in (e.g. from Unlock)
       const pwd = initialPassword || verifiedPasswords[otherUser.username];
 
       if (pwd) {
         fetchHistory(otherUser.username, pwd);
       } else {
-        // Chat exists but is NOT verified. Show prompt.
         setPromptAction('verify');
         setShowPasswordPrompt(true);
       }
@@ -536,7 +497,6 @@ export default function ChatInterface() {
 
       if (!Array.isArray(history)) return;
 
-      // Process in chunks
       const decryptedMessages = [];
       const chunkSize = 5;
 
@@ -558,11 +518,7 @@ export default function ChatInterface() {
         }));
 
         decryptedMessages.push(...decryptedChunk);
-
-        // Yield to maintain responsiveness
         await new Promise(resolve => setTimeout(resolve, 0));
-
-        // Safety check
         if (activeChatRef.current?.username !== otherUsername) return;
       }
 
@@ -578,7 +534,6 @@ export default function ChatInterface() {
 
   const fetchUnread = async () => {
     if (user?.isGhost) {
-      // Ghost mode: pretend no conversations exist
       setUnreadCounts({});
       setRecentContacts([]);
       return;
@@ -598,8 +553,6 @@ export default function ChatInterface() {
     fetchUnread();
 
     if (user?.isGhost) return;
-
-    // Fetch notifications
     fetch('/api/notifications')
       .then(res => res.json())
       .then(data => {
@@ -632,13 +585,11 @@ export default function ChatInterface() {
 
       for (let i = 0; i < olderMessages.length; i += chunkSize) {
         const chunk = olderMessages.slice(i, i + chunkSize);
-
-        // Process chunk
         const decryptedChunk = await Promise.all(chunk.map(async (msg) => {
           const decrypted = msg.type === 'otv' ? msg.content : await decryptAsync(msg.content, password);
           return {
             ...msg,
-            rawContent: msg.content, // Preserve original
+            rawContent: msg.content, 
             content: decrypted,
             caption: msg.caption ? await decryptAsync(msg.caption, password) : msg.caption,
             replyToData: (msg.replyToData && msg.replyToData.content) ? {
@@ -649,16 +600,11 @@ export default function ChatInterface() {
         }));
 
         decryptedMessages.push(...decryptedChunk);
-
-        // Yield to main thread
         await new Promise(resolve => setTimeout(resolve, 0));
-
-        // Safety check: if chat switched while processing, abort
         if (activeChatRef.current?.username !== targetChat.username) return;
       }
 
       setMessages(prev => {
-        // Final safety check before state update
         if (activeChatRef.current?.username !== targetChat.username) return prev;
         return [...decryptedMessages, ...prev];
       });
@@ -722,7 +668,7 @@ export default function ChatInterface() {
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-          const MAX_WIDTH = 1024; // Reduced for reliability on mobile
+          const MAX_WIDTH = 1024; 
           const MAX_HEIGHT = 1024;
 
           if (width > height) {
@@ -741,8 +687,6 @@ export default function ChatInterface() {
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-
-          // Use JPEG for better mobile compatibility/speed
           resolve(canvas.toDataURL('image/jpeg', 0.7));
         };
         img.onerror = (e) => reject(new Error('Failed to load image'));
@@ -754,8 +698,6 @@ export default function ChatInterface() {
   const handleImageSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    // Basic type check
     if (!file.type.startsWith('image/')) {
       showAlert('Please select an image file', 'Invalid File');
       return;
@@ -768,12 +710,11 @@ export default function ChatInterface() {
       console.error('Image processing failed', err);
       showAlert('Failed to process image. It might be corrupt or too large.');
     } finally {
-      e.target.value = null; // Reset input
+      e.target.value = null; 
     }
   };
 
   const handleDeleteMessage = async (messageId) => {
-    // Optimistic update
     setMessages(prev => prev.filter(m => m._id !== messageId));
     setMessageToDelete(null);
 
@@ -786,7 +727,7 @@ export default function ChatInterface() {
     } catch (err) {
       console.error('Failed to delete message:', err);
       showAlert('Failed to delete message');
-      // Revert if failed (would need more complex state management, ignoring for now as simple retry is okay)
+      
     }
   };
 
@@ -802,7 +743,6 @@ export default function ChatInterface() {
     const password = verifiedPasswords[activeChat?.username];
     if (!activeChat || !password) return;
 
-    // 1. Optimistic Update (Immediate Feedback)
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg = {
       _id: tempId,
@@ -826,11 +766,9 @@ export default function ChatInterface() {
     setReplyingTo(null);
     setIsSending(true);
 
-    // 2. Yield to UI (allow render)
     await new Promise(resolve => setTimeout(resolve, 0));
 
     try {
-      // 3. Encrypt Data (Heavy) - Offload to worker
       const encryptedContent = await encryptAsync(base64, password);
       const encryptedCaption = captionText ? await encryptAsync(captionText, password) : null;
       const encryptedReplyContent = replyingTo ? await encryptAsync(replyingTo.content, password) : null;
@@ -848,10 +786,9 @@ export default function ChatInterface() {
           content: encryptedReplyContent,
           type: replyingTo.type
         } : null,
-        tempId: tempId // Pass tempId to backend
+        tempId: tempId
       };
 
-      // 4. Send Request via XHR for progress
       const savedMsg = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/pusher/message');
@@ -878,9 +815,6 @@ export default function ChatInterface() {
 
         xhr.send(JSON.stringify(msgData));
       });
-
-      // 5. Update with Real Message
-      // Prepare saved message for local view (using unencrypted content)
       savedMsg.content = base64;
       savedMsg.caption = captionText;
       if (replyingTo) {
@@ -890,13 +824,10 @@ export default function ChatInterface() {
           type: replyingTo.type
         };
       }
-
-      // Replace optimistic message
       setMessages(prev => prev.map(m => m._id === tempId ? savedMsg : m));
     } catch (err) {
       console.error('Failed to send image:', err);
       showAlert('Failed to send image');
-      // Remove optimistic message on error
       setMessages(prev => prev.filter(m => m._id !== tempId));
     } finally {
       setIsSending(false);
@@ -924,7 +855,6 @@ export default function ChatInterface() {
     setMessage(e.target.value);
 
     if (activeChat) {
-      // Only notify server when we START typing (throttle)
       if (!isTypingRef.current) {
         isTypingRef.current = true;
         fetch('/api/pusher/typing', {
@@ -954,12 +884,8 @@ export default function ChatInterface() {
 
     const currentMsgContent = message;
     const currentReplyTo = replyingTo;
-
-    // Clear input and reply status immediately (UI responsiveness)
     setMessage('');
     setReplyingTo(null);
-
-    // Optimistic Update
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg = {
       _id: tempId,
@@ -978,7 +904,6 @@ export default function ChatInterface() {
     setMessages(prev => [...prev, optimisticMsg]);
 
     try {
-      // Heavy encryption off-thread
       const encryptedContent = await encryptAsync(currentMsgContent, password);
       const encryptedReplyContent = currentReplyTo ? await encryptAsync(currentReplyTo.content, password) : null;
 
@@ -995,12 +920,11 @@ export default function ChatInterface() {
             content: encryptedReplyContent,
             type: currentReplyTo.type
           } : null,
-          tempId: tempId // Pass tempId to backend
+          tempId: tempId 
         })
       });
 
       const savedMsg = await res.json();
-      // Replace optimistic message with actual data but keep decrypted text for local view
       savedMsg.content = currentMsgContent;
       if (currentReplyTo) {
         savedMsg.replyToData = {
@@ -1014,9 +938,8 @@ export default function ChatInterface() {
     } catch (err) {
       console.error('Failed to send message:', err);
       showAlert('Failed to send message');
-      // Revert UI on failure
       setMessages(prev => prev.filter(m => m._id !== tempId));
-      setMessage(currentMsgContent); // Put text back
+      setMessage(currentMsgContent); 
     }
   };
 
@@ -1070,7 +993,6 @@ export default function ChatInterface() {
 
   const viewOTV = async (msgId) => {
     let revealedPassword = '';
-    // 1. Reveal locally
     setMessages(prev => prev.map(m => {
       if (m._id === msgId) {
         revealedPassword = m.content;
@@ -1079,7 +1001,6 @@ export default function ChatInterface() {
       return m;
     }));
 
-    // 2. Auto-verify and Unlock
     if (revealedPassword) {
       try {
         const res = await fetch('/api/conversations/verify', {
@@ -1096,22 +1017,16 @@ export default function ChatInterface() {
         if (data.verified) {
           setVerifiedPasswords(prev => ({ ...prev, [activeChat.username]: revealedPassword }));
           showAlert('Chat Unlocked Successfully!', 'Success', 'Great!');
-          // History will be decrypted on next render due to verifiedPasswords state change
         }
       } catch (e) {
         console.error("Auto-verify failed", e);
       }
     }
-
-    // 3. Delete from server immediately (so it can't be fetched again)
-    // Use the existing delete logic but silent
     fetch('/api/pusher/message', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageId: msgId, userId: user.username })
     }).catch(err => console.error("Failed to delete OTV", err));
-
-    // 4. Auto-expire/hide locally after 30 seconds (longer to allow read/decryption)
     setTimeout(() => {
       setMessages(prev => prev.map(m => {
         if (m._id === msgId) {
@@ -1137,7 +1052,7 @@ export default function ChatInterface() {
     setHasMore(true);
   };
 
-  const [inviteModalData, setInviteModalData] = useState(null);
+
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1207,7 +1122,7 @@ export default function ChatInterface() {
       if (res.ok) {
         updateUserProfile({ autoDeleteDuration });
         showAlert('Security settings updated', 'Secure', 'OK');
-        setDecoyPassword(''); // Clear field for security
+        setDecoyPassword(''); 
         setShowSecuritySettings(false);
       } else {
         showAlert('Failed to update security settings');
@@ -1233,24 +1148,6 @@ export default function ChatInterface() {
     e.target.value = null; // reset
   };
 
-  const handleInvite = async () => {
-    try {
-      const res = await fetch('/api/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const url = `${window.location.origin}/?invite=${data.code}`;
-        setInviteModalData(url);
-      } else {
-        console.error("Failed to generate invite");
-      }
-    } catch (e) {
-      console.error("Error generating invite", e);
-    }
-  };
 
   const copyToClipboard = (text) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1311,7 +1208,6 @@ export default function ChatInterface() {
 
   const renderDeleteModal = () => (
     <div className="interaction-overlay" onClick={() => setMessageToDelete(null)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      {/* ... existing delete modal content ... */}
       <div
         className="delete-modal"
         onClick={(e) => e.stopPropagation()}
@@ -1337,8 +1233,6 @@ export default function ChatInterface() {
       </div>
     </div>
   );
-
-  // Secure Inbox render karne ki logic
   const renderNotificationsModal = () => (
     <div className="interaction-overlay" onClick={() => setShowNotifications(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <div className="delete-modal" onClick={e => e.stopPropagation()} style={{ width: '400px', maxHeight: '500px', overflowY: 'auto' }}>
@@ -1364,14 +1258,12 @@ export default function ChatInterface() {
               <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
                 <button onClick={() => {
                   copyToClipboard(n.content);
-                  // Delete after copy to ensure it doesn't stay
                   setNotifications(prev => prev.filter(x => x._id !== n._id));
                   fetch('/api/notifications', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: n._id }) });
                 }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-200)', color: 'var(--slate-800)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500' }}>
                   Copy
                 </button>
                 <button onClick={() => {
-                  // Just delete/dismiss
                   setNotifications(prev => prev.filter(x => x._id !== n._id));
                   fetch('/api/notifications', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: n._id }) });
                 }} style={{ flex: 1, padding: '0.5rem', background: 'var(--slate-200)', color: 'var(--slate-800)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500' }}>
@@ -1423,7 +1315,6 @@ export default function ChatInterface() {
           animation: 'scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       >
-        {/* Header Background Gradient */}
         <div style={{ height: '120px', background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #4f46e5) 100%)', position: 'relative' }}>
           <button
             onClick={() => setShowContactProfileModal(false)}
@@ -1432,8 +1323,6 @@ export default function ChatInterface() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
-
-        {/* Profile Content */}
         <div style={{ padding: '0 2rem 2.5rem 2rem', marginTop: '-60px' }}>
           <div className="avatar" style={{ width: '120px', height: '120px', margin: '0 auto 1rem auto', fontSize: '3rem', background: 'var(--bg-secondary)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '40px', border: '6px solid var(--bg-secondary)', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             {contactProfileData?.avatar ? (
@@ -1477,23 +1366,10 @@ export default function ChatInterface() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          durationHours: 0, // 0 usually means disable, but we can hack it or use a forced delete flag?
-          // Actually the current cleanup API uses 0 as 'disabled'.
-          // So calling cleanup with 0 does nothing.
-          // We need a brute force DELETE logic here.
+          durationHours: 0, 
           targetUser: activeChat.username
         })
       });
-
-      // Manual override: Since we don't have a specific "Delete All" API ready, 
-      // we will just clear the UI state and rely on the fact that if this was a real deployed app we'd add the endpoint.
-      // But wait, I can add a quick query param to cleanup.js?
-      // Or better, just implement a quick client-side hide.
-      // "Clear Chat" usually just clears local history until next fetch anyway if not fully implemented.
-
-      // Actually, let's call the DELETE api on messages with a loop? No, too slow.
-      // Let's just pretend for UI demo or do the cleanup call if we modified it.
-      // I will trust that for this demo, clearing the UI is the key User Objective.
 
       setMessages([]);
       setShowClearChatModal(false);
@@ -1573,9 +1449,7 @@ export default function ChatInterface() {
             <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, lineHeight: 1, letterSpacing: '-0.02em', color: 'var(--primary)' }}>Hush</h2>
             <span style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Private Messenger</span>
           </div>
-          <button onClick={handleInvite} className="theme-toggle-btn" title="Invite a Friend">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
-          </button>
+
           <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Theme">
             {theme === 'light' ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
@@ -2055,44 +1929,7 @@ export default function ChatInterface() {
           </div>
         )}
       </main>
-      {
-        inviteModalData && (
-          <div
-            onClick={() => setInviteModalData(null)}
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{ background: 'var(--bg-secondary)', padding: '2rem', borderRadius: '16px', width: '90%', maxWidth: '400px', textAlign: 'center', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid var(--border-color)' }}
-            >
-              <div style={{ width: '56px', height: '56px', background: 'var(--primary)', borderRadius: '50%', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem auto', boxShadow: '0 4px 6px -1px rgba(var(--primary-rgb), 0.3)' }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
-              </div>
-              <h3 style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)', fontSize: '1.25rem' }}>Invite a Friend</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.95rem', lineHeight: '1.5' }}>
-                Share this unique link. The invite code is valid for one use only.
-              </p>
 
-              <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.9rem', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                {inviteModalData}
-              </div>
-
-              <button
-                onClick={() => copyToClipboard(inviteModalData)}
-                style={{ width: '100%', padding: '0.875rem', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer', marginBottom: '0.75rem', fontSize: '1rem', transition: 'transform 0.1s' }}
-              >
-                Copy Link
-              </button>
-              <button
-                onClick={() => setInviteModalData(null)}
-                style={{ width: '100%', padding: '0.875rem', background: 'transparent', color: 'var(--text-secondary)', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: '500' }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )
-      }
 
       {
         showProfileModal && (

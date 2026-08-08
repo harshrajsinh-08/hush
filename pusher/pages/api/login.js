@@ -11,67 +11,55 @@ export default async function handler(req, res) {
 
   await dbConnect();
 
-  const { username, password } = req.body;
+  const { username, password, isSignUp } = req.body;
   if (!username || !password) {
-    return res.status(400).json({ message: 'Username and password required' });
+    return res.status(400).json({ message: 'Username and password are required' });
   }
 
   const normalizedUsername = username.trim().toLowerCase();
 
   try {
-    // Find user
+    // Find user by normalized username
     let user = await User.findOne({ username: normalizedUsername });
 
-    if (user) {
+    if (isSignUp) {
+      // Explicit Create Account mode: ensure username is unique and not already taken
+      if (user) {
+        return res.status(409).json({ message: 'Username is already taken. Please choose a different username.' });
+      }
+      // Create new user
+      user = await User.create({ username: normalizedUsername, password });
+    } else {
+      // Log In mode
+      if (!user) {
+        return res.status(404).json({ message: 'User not found. Please check your username or create an account.' });
+      }
+
       // Check password
       const isMatch = await bcrypt.compare(password, user.password);
 
       // Decoy Password Check
       let isDecoy = false;
       if (!isMatch && user.decoyPassword) {
-        console.log(`[Login Debug] Checking Decoy: Input='${password.trim()}', Stored='${user.decoyPassword}'`);
         if (password.trim() === user.decoyPassword) {
           isDecoy = true;
-        } else {
-          console.log('[Login Debug] Decoy Mismatch');
         }
       }
 
       if (!isMatch && !isDecoy) {
-        console.log('[Login Debug] Auth Failed - No Match');
         return res.status(401).json({ message: 'Invalid password' });
       }
 
       if (isDecoy) {
         // Return a GHOST session (random dummy data)
         return res.status(200).json({
-          username: user.username, // Use REAL username for credibility
+          username: user.username,
           _id: 'ghost-' + Date.now(),
           avatar: '',
           status: 'Offline',
-          isGhost: true // Frontend can use this to disable networking
+          isGhost: true
         });
       }
-    } else {
-      // Check if Invite Code is valid
-      const { inviteCode } = req.body;
-      if (!inviteCode) {
-        return res.status(403).json({ message: 'Registration requires an invite code' });
-      }
-
-      const invite = await import('../../lib/models').then(m => m.Invite.findOne({ code: inviteCode, isUsed: false }));
-
-      if (!invite) {
-        return res.status(403).json({ message: 'Invalid or used invite code' });
-      }
-
-      // Mark invite as used
-      invite.isUsed = true;
-      await invite.save();
-
-      // Create new user (User model hashes password internally if defined, otherwise we should check)
-      // Based on previous view, User.create({ username, password }) is used.
-      user = await User.create({ username: normalizedUsername, password });
     }
 
     // Generate JWT
@@ -99,7 +87,11 @@ export default async function handler(req, res) {
       autoDeleteDuration: user.autoDeleteDuration || 0
     });
   } catch (error) {
-    console.error(error);
+    console.error('Login/Signup error:', error);
+    // Catch MongoDB duplicate key constraint (E11000)
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'Username is already taken. Please choose a different username.' });
+    }
     res.status(500).json({ message: 'Server error' });
   }
 }
